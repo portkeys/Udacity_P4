@@ -1,0 +1,415 @@
+---
+title: "Red Wine Quality Prediction"
+author: "Wen Yang"
+date: "February 6, 2017"
+output: html_document
+---
+## Introduction
+The objective of this study is to build a classification model to predict red wine quality based on given physicochmeical characteristics. The dataset used for this analysis including 1599 red wine samples with 11 physicochemical attributes like alcohol content or pH, and 1 sensory attribute called quality, represented by integer numbers from 3 to 8. Details on the dataset can be referred to the original paper [Cortez et al., 2009](http://projects.csail.mit.edu/wiki/pub/Evodesign/SensoryEvaluationsDatabase/winequality09.pdf).
+
+The process of the study is described as below:
+1. Exploratory Data Analysis (EDA)
+ + 1.1 Univariate Plot Section & Analysis
+ + 1.2 Bivariate Plot Section & Analysis
+ + 1.3 Multivariate Plot Section & Analysis
+2. Prediction Model
+ + 2.1 Data Partition: Training & Test 
+ + 2.2 Random Forest Prediction Model
+ + 2.3 Model Performance
+3. Summary
+ + 3.1 Final Plots
+ + 3.2 Reflection
+
+### 1. Exploratory Data Analysis (EDA)
+In this section, illustrative and analytic data visualizations are created for all attributes in multiple ways in order to understand the distribution of univariate as well as the the association relationships between variables. EDA results will lay the foundation to help select important attributes to build red wine quality prediction model.
+
+Load the Red Wine csv file and preview our dataset.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+dta <- read.csv('wineQualityReds.csv')
+head(dta)
+```
+
+Also check the bottom of dataset to make sure the consistency of format to be aware of situations like any annotation lines at the end of dataset.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+tail(dta)
+```
+
+The data is formated consistently and ready for analysis. Now check overall structure and summarize the quality data
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+str(dta)
+```
+Observations:
+* All attributes are numerical type
+* The first column X is index of sample identifier, which will not be included for further analysis.
+
+
+#### 1.1 Univariate Plot & Analysis
+#### 1.1.1 Dependent Variable
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# Import libraries
+library(ggplot2)
+library(MASS) 
+library(dplyr)
+library(gridExtra)
+library(corrplot)
+library(PerformanceAnalytics)
+library(reshape2)
+library(xtable)
+library(grid)
+library(caret)
+library(randomForest)
+library(ggthemes)
+```
+
+Create a histogram of dependent variable quality Get a summary of the dependent variable--quality.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(dta, aes(x=factor(quality))) + geom_histogram() + xlab("Quality")
+```
+
+Quality is represented by integers from 3 to 8, the larger the quality number, the higher the wine quality as it indicated.
+The chart shows that the majority samples have quality score 5 or 6. Let's also see the statistic summary of quality.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+summary(dta$quality)
+```
+Observations:
+* Quality score 5 and 6 also mark the 1st and 3rd quantile of data respectively. In other words:
+ * 25% of samples with quality score below 5
+ * 75% of samples with quality score above 6.
+* According to source descrption, the quality score is the median based on at least three evaluations by wine experts. This helps to minimize the bias between personal preferences, but there are still other biases might be present in quality evaluation that worth noticing. For example, it might be safe to interpret that wine samples with quality score 8 are much better than those with quality score 3 , but it is hard to tell that whether the differnce in score 4 group and score 3 group represents sensory differences or human perception differences on those number categories. Wine experts judged those samples based on the guide that "0 means very bad and 10 means excellent", but the level of quality correponding to number range is subjective to individual interpretation. For example, one expert might use 8 to represent high quality sensory experience with one sample, and another expert might think 7 already represent high quality wine. In other words, the absolute number of quality might not necessarily imply level of wine quality.
+
+So the next step is to create a new categorical variable "level" to represent wine quality in 3 groups: 
+* "Low": quality score 3 or 4
+* "Medium": quality score 5 or 6
+* "High": quality score 7 or 8
+
+```{r echo=FALSE}
+dta$level[dta$quality>=7]<- "High"
+dta$level[dta$quality>=5 & dta$quality<7]<- "Medium"
+dta$level[dta$quality<5]<- "Low"
+dta$level<-factor(dta$level,levels=c("Low","Medium","High"))
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(dta, aes(factor(quality), fill=level)) + geom_bar() + xlab("Quality")
+```
+
+The categorical variable "level" will be our new dependent variable. Instead of predicting the exact quality score, our goal is to predict the quality level given certain physicochemcial attributes.
+
+The next step is to check our 11 physicochemical attributes.
+
+#### 1.1.2 Independent Variables
+
+There are two things to be bear in mind before carrying out investigation on independent variable:
+* All 11 attributes are continous numerical variables
+* According to the source paper, there might be correlation relationship among those attributes, which means that not all 11 attributes are independent from each other.
+
+So let's first look at the distribution of each attribute. To better graphically describe the central tendency as well as detect the presence of any outliers, it would be helpful to overlay the statistics on distribution plots. Since there are 11 of them, we will write functions to first compute variable outliers and then generate a list of plots with their corresponded statistic lines.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# Write a function to compute median and outliers given column number dataset
+
+col_line <- function(col){
+valmedian <- median(dta[,col])
+valiqr<-IQR(dta[,col])
+val_q1<-valmedian - valiqr
+val_q3<-valmedian + valiqr
+val_outlier<-c(val_q1-1.5*valiqr,val_q3+1.5*valiqr)
+
+val_lines <-c(val_outlier,valmedian)
+return(val_lines)
+}
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+plot_list <- list()
+nplot = 11
+ind_names <- names(dta)[2:12]
+
+for (i in seq(nplot)){
+  new_plot <- ggplot(dta,aes_string(x=ind_names[i])) +
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + 
+    geom_density(alpha=.2, fill="#FF6666") +
+    geom_vline(xintercept=col_line(i+1), linetype="longdash",colour="red") 
+  plot_list <- c(plot_list,list(new_plot))
+}
+
+do.call(grid.arrange, c(plot_list, list(ncol=4)))
+```
+
+In each histogram, there are three red dash lines which mark the outlier lower-bound, median and outlier upper-bound respectively. Key observations from above graph are summarized as below:
+* Attributes with noticable outliers: plotting range might need to be adjusted to better capture data
+ * residual.sugar
+ * chlorides
+* Attributes with distribution similar to Gaussian distribution
+ * fixed.acidity
+ * volatile.acidity
+ * density
+ * pH
+* Attributes with distribution similar to Gamma or Log distribution
+ * free.sulfur.dioxide, total.sulfur.dioxide and sulphates: these three variables have similar distribution
+* Attributes with more than one peak
+ * citric.acid: three peaks observed which might be a promising predictor for wine quality level.
+ * alcohol: although kernel density shape smoothed out, we can still see the two peaks revealed by its histogram, which might be another promising predictor for wine quality level.
+
+In order to build predictive model, we need to understand the association patterns between these physicochemical attributes  and our dependent variable (level). Idealy predictor variables should be independent to each other to minimize the noise brought by colinearity. we should also check the correlation among these 11 attributes. 
+
+#### 1.2 Bivariate Plot & Analysis
+
+Boxplots are divided into three major groups:
+* Increasing trend group: indicating positive correlation between physicochemcial attrbute and wine quality level.
+* Decreasing trend group: indicating negative correlation between physicochemcial attrbute and wine quality level. 
+* Unclear trend group: no specific correlation pattern observed between physicochemcial attrbute and wine quality level. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE }
+# Increasing Trend Groups
+colgroup1 <- c(2,12,14) # increasing
+colgroup2 <- c(4,11,14) # increasing
+colgroup3 <- c(5,14) # increasing
+
+
+longroup1 <- melt(dta[,colgroup1], id.vars="level")
+longroup2 <- melt(dta[,colgroup2], id.vars="level")
+longroup3 <- melt(dta[,colgroup3], id.vars="level")
+
+g1<-ggplot(longroup1, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer(palette = "RdPu", guide=FALSE) + xlab("") + coord_cartesian(ylim=c(5,14))
+g2<-ggplot(longroup2, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer(palette = "RdPu", guide=FALSE) + xlab("") + coord_cartesian(ylim=c(0,1)) 
+g3<-ggplot(longroup3, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer(palette = "RdPu") + xlab("") + coord_cartesian(ylim=c(1.5,3.5))
+
+# Decreasing Trend Groups
+colgroup4 <- c(3,14) # decreasing
+colgroup5 <- c(6,14) # decreasing
+colgroup6 <- c(10,14) # decreasing
+
+longroup4 <- melt(dta[,colgroup4], id.vars="level")
+longroup5 <- melt(dta[,colgroup5], id.vars="level")
+longroup6 <- melt(dta[,colgroup6], id.vars="level")
+
+g4<-ggplot(longroup4, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer(guide=FALSE) + xlab("")
+g5<-ggplot(longroup5, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer(guide=FALSE) + xlab("") +
+    coord_cartesian(ylim=c(0,0.15))
+g6<-ggplot(longroup6, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer() + xlab("") + coord_cartesian(ylim=c(2.5,4))
+
+
+grid.arrange(g1,g2,g3,g4,g5,g6, ncol=3, main=textGrob("Clear Trend Groups: Increasing or Decreasing", gp=gpar(fontsize=12,font=8), just="top"))
+
+```
+
+Attributes in "Clear Trend Groups" will be further analyzed by correlation matrix to help select independent predictors.
+
+```{r}
+colgroup7 <- c(7,14) # sulfur, unclear
+colgroup8 <- c(8,14) # sulfur, unclear
+colgroup9 <- c(9,14) # unclear
+
+longroup7 <- melt(dta[,colgroup7], id.vars="level")
+longroup8 <- melt(dta[,colgroup8], id.vars="level")
+longroup9 <- melt(dta[,colgroup9], id.vars="level")
+
+g7<-ggplot(longroup7, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer(palette = "Purples") + coord_cartesian(ylim=c(0,40)) + xlab("") 
+g8<-ggplot(longroup8, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer(palette = "Purples") + coord_cartesian(ylim=c(0,100)) + xlab("") 
+g9<-ggplot(longroup9, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer(palette = "Purples") + coord_cartesian(ylim=c(0.992,1)) + xlab("") 
+
+grid.arrange(g7,g8,g9, ncol=1, main=textGrob("Unclear Trend Group", gp=gpar(fontsize=12,font=8), just="top"))
+```
+
+Attributes in "Unclear trend group" will not be included as further predictive model development process.
+
+#### 1.3 Multi-variate Plot & Analysis
+
+Create correlation chart for 8 physicochemical attributes in "Clear Trend Groups": 
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+mycol <- c(2:6, 10:12)
+chart.Correlation(dta[,mycol])
+```
+
+Correlation interpretation can be referred to Evans (1996), which suggests for the absolute value of r:
+ .00-.19 “very weak”
+ .20-.39 “weak”
+ .40-.59 “moderate”
+ .60-.79 “strong”
+ .80-1.0 “very strong”
+
+For attributes in "Clear Trend Groups", fixed.acidity shows strong positive correlation with citric.acid and strong negative correlation with pH. Thus, this attribute will not be considered as candidate predictors to minimize colinearity noise. 
+
+Now let's create a heatmap to view the association of the 7 candidate predictors:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+source("http://www.sthda.com/upload/rquery_cormat.r")
+mycol <- c(3:6, 10:12)
+rquery.cormat(dta[,mycol])
+```
+
+The next step is to build a prediction model by fitting the above 7 predictors.
+
+### 2. Prediction Model
+#### 2.1 Data Partition: Training & Test 
+#### 2.2 Random Forest Prediction Model
+#### 2.3 Model Performance
+
+
+ 
+First, split 1599 samples into 70& training and 30% test data. Data partition  by random sampling within wine quality "level",  is not done by selecting 70% 
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+intrain<-createDataPartition(y=dta$level,p=0.7,list=FALSE, times=1)
+dta_train<-dta[intrain,]
+dta_test<-dta[-intrain,]
+
+p1<-ggplot(dta, aes(level, fill=level)) + geom_bar() + labs(title="Original Dateset")+ coord_cartesian(ylim=c(0,1599)) + theme(axis.title.x=element_blank(), axis.text.x=element_blank(),axis.ticks.x=element_blank())
+
+p2<-ggplot(dta_train, aes(level, fill=level)) + geom_bar() + labs(title="70% as Training") + coord_cartesian(ylim=c(0,1599)) + theme(axis.title.x=element_blank(), axis.text.x=element_blank(),axis.ticks.x=element_blank())
+
+p3<-ggplot(dta_test, aes(level, fill=level)) + geom_bar()  + labs(title="30% as Test") + coord_cartesian(ylim=c(0,1599)) + theme(axis.title.x=element_blank(), axis.text.x=element_blank(),axis.ticks.x=element_blank())
+
+source('~/Documents/Udacity/P4/grid_arrange_shared_legend.r')
+
+grid_arrange_shared_legend(p1,p2,p3, ncol=3)
+```
+
+Build prediction model using randomForest on the training set.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+wine_rf <- randomForest(level ~ citric.acid + chlorides + sulphates +
+                             volatile.acidity + pH + residual.sugar + alcohol,
+                           data=dta_train)
+wine_rf
+```
+The overall error rate estimated on training dataset is below 14%.
+
+Now let's see the prediction performance on test dataset.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+wine_pred <- predict(wine_rf, dta_test)
+compare<-table(Observed=dta_test$level, Predicted=wine_pred)
+compare
+
+df<-as.data.frame(compare)
+correct <-subset(df,df$Observed==df$Predicted)
+accuracy <- (sum(correct$Freq))/nrow(dta_test)
+cat("\n")
+cat('Accuracy of Prediction Model is:', accuracy)
+```
+The prediction model achieved 85% accuracy rate.
+
+In the univariate plot section, we proposed that alcohol and citric.acid would be potential predictors based on observed two or three peaks on historgram.
+
+In the bivariate plot section, boxplots for the "Clear Trend Group" revealed that citric.acid, sulphates, residual.sugar and alcohol all show positive correlation with wine quality level.
+
+Now let's visualize the rank of these 4 attributes based on the variable importance.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# Get importance
+importance <- importance(wine_rf)
+varImportance <- data.frame(Variables = row.names(importance), 
+                            Importance = round(importance[ ,'MeanDecreaseGini'],2))
+
+# Create a rank variable based on importance
+rankImportance <- varImportance %>%
+  mutate(Rank = paste0('#',dense_rank(desc(Importance))))
+
+# Use ggplot2 to visualize the relative importance of variables
+ggplot(rankImportance, aes(x = reorder(Variables, Importance), 
+    y = Importance, fill = Importance)) +
+  geom_bar(stat='identity') + 
+  geom_text(aes(x = Variables, y = 0.5, label = Rank),
+    hjust=0, vjust=0.55, size = 4) +
+  labs(x = 'Variables') +
+  coord_flip() + 
+  theme_few()
+```
+
+Our previous assumptions on alcohol, sulphates, citric.acid and residual.sugar are ranked as No.1, No.3, No.4 and No.7 respectively.
+The most important variable alcohol is positively correlated to wine quality level, and the second important variable volatile.acidity is negatively correlated to wine quality level.
+
+
+
+### 3. Summary
+
+#### 3.1 Final Plots
+
+Final Plot 1: this plot is slightly revised by changing the plot column to avoid the cramped x-ticks for density subplot. The reason to keep this plot is because the histogram, kerney density and outliers are overlaied in a compact but informative way. Together it helped us identified citric.acid and alcohol those two important variables. The outliers lines are also helpful to adjust the plotting range as analysis carrying on.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+plot_list <- list()
+nplot = 11
+ind_names <- names(dta)[2:12]
+
+for (i in seq(nplot)){
+  new_plot <- ggplot(dta,aes_string(x=ind_names[i])) +
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + 
+    geom_density(alpha=.2, fill="#FF6666") +
+    geom_vline(xintercept=col_line(i+1), linetype="longdash",colour="red") 
+  plot_list <- c(plot_list,list(new_plot))
+}
+
+do.call(grid.arrange, c(plot_list, list(ncol=3)))
+```
+
+Final Plot 2: this plot is selected because it reveals clear trend between physicochmeical attributes and dependent variable wine quality level. Positive and negative trend are differenciated by color to create contrast visualization. This is also the major contributor to help us identify the predictor candidates.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE }
+# Increasing Trend Groups
+colgroup1 <- c(2,12,14) # increasing
+colgroup2 <- c(4,11,14) # increasing
+colgroup3 <- c(5,14) # increasing
+
+
+longroup1 <- melt(dta[,colgroup1], id.vars="level")
+longroup2 <- melt(dta[,colgroup2], id.vars="level")
+longroup3 <- melt(dta[,colgroup3], id.vars="level")
+
+g1<-ggplot(longroup1, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer(palette = "RdPu", guide=FALSE) + xlab("") + coord_cartesian(ylim=c(5,14))
+g2<-ggplot(longroup2, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer(palette = "RdPu", guide=FALSE) + xlab("") + coord_cartesian(ylim=c(0,1)) 
+g3<-ggplot(longroup3, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer(palette = "RdPu") + xlab("") + coord_cartesian(ylim=c(1.5,3.5))
+
+# Decreasing Trend Groups
+colgroup4 <- c(3,14) # decreasing
+colgroup5 <- c(6,14) # decreasing
+colgroup6 <- c(10,14) # decreasing
+
+longroup4 <- melt(dta[,colgroup4], id.vars="level")
+longroup5 <- melt(dta[,colgroup5], id.vars="level")
+longroup6 <- melt(dta[,colgroup6], id.vars="level")
+
+g4<-ggplot(longroup4, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer(guide=FALSE) + xlab("")
+g5<-ggplot(longroup5, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer(guide=FALSE) + xlab("") +
+    coord_cartesian(ylim=c(0,0.15))
+g6<-ggplot(longroup6, aes(x=variable, y=value, fill=level)) + geom_boxplot() + scale_fill_brewer() + xlab("") + coord_cartesian(ylim=c(2.5,4))
+
+
+grid.arrange(g1,g2,g3,g4,g5,g6, ncol=3, main=textGrob("Clear Trend Groups: Increasing or Decreasing", gp=gpar(fontsize=12,font=8), just="top"))
+
+```
+
+Final Plot 3: this plot is selected because it helped us confirm the final 7 predictors by eliminating fixed.acidity due to its strong colinearity with other variables. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+mycol <- c(2:6, 10:12)
+chart.Correlation(dta[,mycol])
+```
+
+#### 3.2 Reflection
+
+In this study, we applied random forest algorithm to predict wine quality level. The methodology involves two major phases: EDA phase and prediction model development phase.
+* EDA phase: it is a highly iterative process and this is also the part I spent most time with. One lesson's learned is that in EDA phase, it is very tempting to going on and on, but it is also very important to know when to stop because real projects will have time and monetary budget. Fortunately at last this EDA phase reached a relative satisfactory status.
+
+* Prediction Model Development: there are a few limitations in this phase.
+ * fixed.acidity is eliminated as a predictor because of its colinearity. To complete the model perforamce and feature selection, we should also train a model by including fixed.acidity but removing the other two attributes associated with fixed.acidity. This way we can have a relative comprehensive model representation for potential candidates.
+ * Idealy, we should divide dateset into training, validation and test subsets. By doing so, we can train a couple of prediction models by fitting training data, and then compare error rate in validation dataset, at last apply the model with best performance in validation dataset to the test dataset. In this study, the validation process is not included. 
+
+
+
+## Reference
+1. P. Cortez, A. Cerdeira, F. Almeida, T. Matos and J. Reis. Modeling wine preferences by data mining from physicochemical properties. In Decision Support Systems, Elsevier, 47(4):547-553, 2009.
+
+2. Correlation matrix: An R function to do all you need (http://www.sthda.com/english/wiki/correlation-matrix-an-r-function-to-do-all-you-need#at_pco=smlre-1.0&at_si=589272c605773292&at_ab=per-2&at_pos=3&at_tot=4)
+
+3. Source code for Variable Importance Plot (https://www.kaggle.com/mrisdal/titanic/exploring-survival-on-the-titanic)
+
+4. Evans, J. D. (1996). Straightforward statistics for the behavioral sciences. Pacific Grove, CA: Brooks/Cole
+Publishing.
+
