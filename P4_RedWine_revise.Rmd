@@ -1,7 +1,7 @@
 ---
 title: "Red Wine Quality Prediction"
 author: "Wen Yang"
-date: "February 12, 2017"
+date: "February 15, 2017"
 output: 
   html_document: 
     number_sections: yes
@@ -67,10 +67,16 @@ The focus of this section is to understand the distribution characteristics for 
 
 ### Dependent Variable
 
-We start with creating a histogram of the dependent variable *quality*. 
+We start with creating a bar plot for the dependent variable *quality*. 
 
 ```{r}
-ggplot(dta, aes(x=factor(quality))) + geom_histogram() + xlab("Quality")
+
+# remove 1st column X
+dta$X <- NULL
+
+# bar plot for quality
+ggplot(dta, aes(x=factor(quality))) + geom_bar() + xlab("Quality")
+
 ```
 
 Quality in our samples ranges from 3 to 8, and the majority samples have quality score 5 or 6. Noticed that the absence of "Excellent:10" or "Very bad:0" scores probably indicates there is no outliers in terms of red wine quality, although it is also possible due to that people tend to avoid giving extreme judgements. 
@@ -104,6 +110,7 @@ dta$level<-factor(dta$level,levels=c("Low","Medium","High"))
 
 ```{r}
 ggplot(dta, aes(factor(quality), fill=level)) + geom_bar() + xlab("Quality")
+
 ```
 
 The categorical variable *level* will be our new dependent variable. Instead of predicting the exact quality score, our goal is to predict the quality level given certain physicochemcial attributes.
@@ -114,43 +121,49 @@ The next step is to check the independent variable group.
 
 Independent variable group includes 11 attributes and all of them are continuous numerical variables. To better graphically describe the central tendency as well as detect the presence of any outliers, it would be helpful to overlay the statistics on distribution plots. Since there are 11 of them, we will write functions to first compute variable outliers and then generate a list of plots with their corresponded statistic lines.
 
+
+
+
+
+
 ```{r}
-# Write a function to compute median and outliers given column number dataset
 
-col_line <- function(col){
-valmedian <- median(dta[,col])
-valiqr<-IQR(dta[,col])
-val_q1<-valmedian - valiqr
-val_q3<-valmedian + valiqr
+# Function to compute median and outliers given column number dataset
 
-# lower-bound outlier can not be negative
-val_outlier<-c(max(val_q1-1.5*valiqr,0),val_q3+1.5*valiqr) 
+univ_line <- function(feature){
+  valmedian <- median(dta[[feature]])
+  valiqr <- IQR(dta[[feature]])
+  val_q1 <- valmedian - valiqr
+  val_q3 <- valmedian + valiqr
 
-val_lines <-c(val_outlier,valmedian)
-return(val_lines)
+# Lower-bound outlier can not be nagative
+  val_outlier <- c(max(val_q1-1.5*valiqr,0),val_q3+1.5*valiqr) 
+  val_lines <- c(val_outlier, valmedian)
+  
+  return(val_lines)
 }
 
 ```
 
-
 ```{r}
-plot_list <- list()
-nplot = 11
-ind_names <- names(dta)[2:12]
 
-for (i in seq(nplot)){
-  new_plot <- ggplot(dta,aes_string(x=ind_names[i])) +
+# Function for plotting univariate histogram with outliers and median
+
+univ_hist <- function(feature) {
+  ggplot(dta,aes_string(x = feature)) +
     geom_histogram(aes(y=..density..), colour="black", fill="white") + 
     geom_density(alpha=.2, fill="#FF6666") +
-    geom_vline(xintercept=col_line(i+1), linetype="longdash",colour="red") 
-  plot_list <- c(plot_list,list(new_plot))
+    geom_vline(xintercept=univ_line(feature), linetype="longdash",colour="red") 
 }
+
+
 ```
 
-
 ```{r}
-# print the 1st plot
-print(plot_list[1])
+
+# 1. fixed.acidity 
+
+univ_hist("fixed.acidity")
 
 ```
 
@@ -159,16 +172,18 @@ There are 3 red dash lines imposed to histogram-density plot to mark the lower-b
 Fixed acidity falling within a range from 4 to 16 is close to Gaussian distribution. There are a few samples above upper-bound outlier line but no special handling is required for this attribute. 
 
 ```{r}
-# print the 2nd plot
-print(plot_list[2])
+# 2. volatile.acidity 
+
+univ_hist("volatile.acidity")
 ```
 
 Volatile acidity seems to have bimodal or trimodal distribution, as the kernel density plot and original histogram suggested. This attribute seems to be a promising predictor since our new dependent variable *level* also has three categories.
 There are also a few upper-bound outliers observed, but no special outlier handling is required. 
 
 ```{r}
-# print the 3rd plot
-print(plot_list[3])
+# 3. citric.acid
+
+univ_hist("citric.acid")
 ```
 
 Citric acid data have three peaks can be clearly observed in both histogram and density smooth line. This attribute also seems to be a promising predictor.
@@ -176,8 +191,9 @@ Citric acid data have three peaks can be clearly observed in both histogram and 
 For this attribute, no outliers have observed in sample data.
 
 ```{r}
-# print the 4th plot
-print(plot_list[4])
+# 4. residual.sugar
+
+univ_hist("residual.sugar")
 ```
 
 Residual sugar has a positively skewd distribution with noticable outliers. There are a couple of ways to handle outliers:
@@ -190,18 +206,17 @@ Residual sugar has a positively skewd distribution with noticable outliers. Ther
 Square root or log transformations can pull in large numbers, so let's compare them both:
 
 ```{r}
-# get column index for residual.sugar
-col_index <- grep("residual.sugar", colnames(dta))
+# 4. residual.sugar
 
 # calculate the intercept lines for square transformated data
-g1_intercept <- sqrt(col_line(col_index))
+g1_intercept <- sqrt(univ_line("residual.sugar"))
 g1 <- ggplot(dta,aes(sqrt(residual.sugar))) +
     geom_histogram(aes(y=..density..), colour="black", fill="white") +
     geom_density(alpha=.2, fill="#FF6666") +
     geom_vline(xintercept=g1_intercept, linetype="longdash",colour="red")
 
 # calculate the intercept lines for Log10 transformated data
-g2_intercept <- log10(col_line(col_index))
+g2_intercept <- log10(univ_line("residual.sugar"))
 g2 <- ggplot(dta,aes(log10(residual.sugar))) +
     geom_histogram(aes(y=..density..), colour="black", fill="white") +
     geom_density(alpha=.2, fill="#FF6666") +
@@ -216,10 +231,9 @@ The distribution produced by square root transformationdistribution still has a 
 At this point, we can use log scale to better view the original data range:
     
 ```{r}
-ggplot(dta,aes_string(x=ind_names[4])) +
-    geom_histogram(aes(y=..density..), colour="black", fill="white") + 
-    geom_density(alpha=.2, fill="#FF6666") +
-    geom_vline(xintercept=col_line(4+1), linetype="longdash",colour="red") +
+# 4. residual.sugar
+
+univ_hist("residual.sugar") +
     scale_x_log10(
    breaks = scales::trans_breaks("log10", function(x) 10^x),
    labels = scales::trans_format("log10", scales::math_format(10^.x))
@@ -231,18 +245,18 @@ ggplot(dta,aes_string(x=ind_names[4])) +
 From the above log-scaled plot, we can see that the upper-bound outlier for residual sugar is about 4.
 
 ```{r}
-# check the 5th plot in plot_list
-print(plot_list[5])
+# 5. chlorides
+
+univ_hist("chlorides")
 ```
 
 Chlorides distribution is similar to residual sugar, also highly skewed to the right. So we can apply log-scalling for this variable too.
 
 ```{r}
+# 5. chlorides
+
 # Apply log-scaling for variable chlorides
-ggplot(dta,aes_string(x=ind_names[5])) +
-    geom_histogram(aes(y=..density..), colour="black", fill="white") + 
-    geom_density(alpha=.2, fill="#FF6666") +
-    geom_vline(xintercept=col_line(5+1), linetype="longdash",colour="red") +
+univ_hist("chlorides") +
     scale_x_log10(
    breaks = scales::trans_breaks("log10", function(x) 10^x),
    labels = scales::trans_format("log10", scales::math_format(10^.x))
@@ -254,8 +268,9 @@ ggplot(dta,aes_string(x=ind_names[5])) +
 Now it is more easier to see that chlorides for the majority of data falls within 0.03 to 0.1, with the median value 0.08.
 
 ```{r}
-# print the 6th plot in plot_list
-print(plot_list[6])
+# 6. free.sulfur.dioxide
+
+univ_hist("free.sulfur.dioxide")
 
 ```
 
@@ -263,34 +278,44 @@ Free sulfur dioxide is slightly positive skewed, but no outlier handling is need
     
    
 ```{r}
-print(plot_list[7])
+# 7. total.sulfur.dioxide
+
+univ_hist("total.sulfur.dioxide")
 
 ```
 
 The distribution shape for total sulfur dioxide is very similar to free sulfur dioxide: both are slightly positive skewed with no need for outlier handling.
 
 ```{r}
-print(plot_list[8])
+# 8. density
+
+univ_hist("density")
 
 ```
 
 Density looks highly like a normal distribution, with data evenly distributed two sides from median. It is worth noticed that density difference is very small--less than 0.1 among all samples. The majority samples with density less than 1 makes sense since the density of ethanol is less than water. One possible causing for wine denser than water could be high sugar level since the density of sucrose is about 1.59 g/cm^3^. We can further compare relationship between density and residual sugar in bivariate section.
 
 ```{r}
-print(plot_list[9])
+# 9. pH
+
+univ_hist("pH")
 
 ```
 
 pH also has a distribution very close to Gaussian/normal. 
 
 ```{r}
-print(plot_list[10])
+# 10. sulphate
+
+univ_hist("sulphates")
 ```
 
 Sulphates has a light tail on the positive side.
 
 ```{r}
-print(plot_list[11])
+# 11. alcohol
+
+univ_hist("alcohol")
 ```
 
 Although kernel density shape smoothed out, we can still see the two peaks revealed by its histogram, which might be another promising predictor for wine quality level.
@@ -307,6 +332,8 @@ Observations for univariate exploratory:
 
 In the above section, we found that there are some wine samples denser than water, and one possible cause could be high sulcose content. To find out, let's investigate how density is related to residual sugar. Since residual sugar has some significant outliers, we will apply log scalling for residual sugar.
 
+Wine samples with density greater than 1 have been defined as *Dense Wine*, and those with density less or equal than 1 have been defined as *Regular Wine*.
+
 ```{r}
 ggplot(dta, aes(x=residual.sugar, y=density, 
                 color=ifelse(density>1, "Dense Wine","Regular Wine"))) + 
@@ -322,7 +349,6 @@ ggplot(dta, aes(x=residual.sugar, y=density,
 
 ```
 
-Wine samples with density greater than 1 have been defined as *Dense Wine*, and those with density less or equal than 1 have been defined as *Regular Wine*.
 
 For Regular Wine group, the residual sugar level is condensed in the range from 10^0.2^ (1.58) to 10^0.4^ (2.51). While for the Dense Wine group, the majority data are within range from 2 to 4. Though the overlap between two ranges might suggest there are other parameters also contributing wine density, we can still infer that density is positive correlated to residual sugar for both dense wine and regular wine groups. For future study topics, we can run t-test to see whether the difference is statistically significant, which is not included in this study. 
 
