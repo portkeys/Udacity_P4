@@ -26,6 +26,7 @@ library(randomForest)
 library(ggthemes)
 library(psych)
 library(polycor)
+library(plotly)
 ```
 
 # Introduction
@@ -704,6 +705,41 @@ The above 3 physicochemcial attrbutes will not be included for further analysis 
 So far, we shrinked down predictor variables from 11 attributes to 8. 
 
 ## Multi-variate Plot & Analysis
+
+
+```{r}
+ggplot(dta, aes(y=alcohol, x=log10(residual.sugar), colour=level)) +
+  geom_point(alpha=0.3, position = position_jitter()) +
+  stat_smooth(method="lm", se=FALSE)
+```
+
+
+
+```{r}
+ggplot(dta, aes(x=density, y= alcohol, colour=level)) +
+  facet_wrap(~ level) +
+  geom_point(alpha=0.3, position="jitter") +
+  geom_boxplot(alpha=0, colour="black")
+```
+
+
+```{r}
+
+
+ggplot(dta, aes(x=alcohol, y=density)) +
+  geom_smooth(aes(colour=level, fill=level)) + facet_wrap(~level)
+```
+
+
+```{r}
+ggplot(dta, aes(alcohol, fill=level, colour=level))+
+  geom_density(alpha=0.1)
+```
+
+
+
+
+
 
 
 The next step is to build a prediction model by fitting the above 7 predictors.
