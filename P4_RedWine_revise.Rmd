@@ -1,7 +1,7 @@
 ---
 title: "Red Wine Quality Prediction"
 author: "Wen Yang"
-date: "February 15, 2017"
+date: "February 16, 2017"
 output: 
   html_document: 
     number_sections: yes
@@ -24,6 +24,8 @@ library(grid)
 library(caret)
 library(randomForest)
 library(ggthemes)
+library(psych)
+library(polycor)
 ```
 
 # Introduction
@@ -41,7 +43,7 @@ dta <- read.csv('wineQualityReds.csv')
 head(dta)
 ```
 
-It's also good to check the bottom of the dataset to make sure the format consistency and be aware of situations like comment lines at the end of a dataset.
+It's also necessary to check the bottom of the dataset to make sure the format consistency and be aware of situations like comment lines at the end of a dataset.
 
 ```{r}
 tail(dta)
@@ -59,7 +61,7 @@ Observations:
 * There are 11 variables with continuous numerical value, which are physicochemical attributes of wine samples.
 * There are 2 variables represented by integers:
     - *X*: representing the index of sample identifier, which will not be included for further analysis.
-    - *quality*: according to source descrption, quality data is developed based on the median value of sensory evaluation given by at least three wine experts. Wine experts judged those samples using the rule that "0 means very bad and 10 means excellent", which means the larger the quality number, the higher the wine quality as it indicated. This is the dependent variable of interest and the next step is to look at how the quality distributed in our sample data.
+    - *quality*: according to source description, quality data is developed based on the median value of sensory evaluation given by at least three wine experts. Wine experts judged those samples using the rule that "0 means very bad and 10 means excellent", which means the larger the quality number, the higher the wine quality. This is also the dependent variable of interest and the next step is to look at how the quality distributed in our sample data.
 
 ## Univariate Plot & Analysis
 
@@ -119,12 +121,7 @@ The next step is to check the independent variable group.
 
 ### Independent Variables
 
-Independent variable group includes 11 attributes and all of them are continuous numerical variables. To better graphically describe the central tendency as well as detect the presence of any outliers, it would be helpful to overlay the statistics on distribution plots. Since there are 11 of them, we will write functions to first compute variable outliers and then generate a list of plots with their corresponded statistic lines.
-
-
-
-
-
+Independent variable group includes 11 attributes and all of them are continuous numerical variables. To better graphically describe the central tendency as well as detect the presence of any outliers, it would be helpful to overlay the key statistics like median and outliers on distribution plots. Since there are 11 of them, we will write functions for outlier computation as well as for univariate distribution plotting. 
 
 ```{r}
 
@@ -156,25 +153,29 @@ univ_hist <- function(feature) {
     geom_vline(xintercept=univ_line(feature), linetype="longdash",colour="red") 
 }
 
-
 ```
 
 ```{r}
 
 # 1. fixed.acidity 
 
-univ_hist("fixed.acidity")
+univ_hist("fixed.acidity") + 
+  annotate("text", univ_line("fixed.acidity")+1, y=0.3, label=c("Lower Outlier","Upper Outlier","Median"))
+
+summary(dta$fixed.acidity)
+
 
 ```
 
 There are 3 red dash lines imposed to histogram-density plot to mark the lower-bound outlier, median and upper-bound outlier respectively.
 
-Fixed acidity falling within a range from 4 to 16 is close to Gaussian distribution. There are a few samples above upper-bound outlier line but no special handling is required for this attribute. 
+Fixed acidity falling within a range from 4.6 to 15.9 is close to Gaussian distribution. There are a few samples above upper-bound outlier line but no special handling is required for this attribute. 
 
 ```{r}
 # 2. volatile.acidity 
 
 univ_hist("volatile.acidity")
+summary(dta$volatile.acidity)
 ```
 
 Volatile acidity seems to have bimodal or trimodal distribution, as the kernel density plot and original histogram suggested. This attribute seems to be a promising predictor since our new dependent variable *level* also has three categories.
@@ -184,6 +185,7 @@ There are also a few upper-bound outliers observed, but no special outlier handl
 # 3. citric.acid
 
 univ_hist("citric.acid")
+summary(dta$citric.acid)
 ```
 
 Citric acid data have three peaks can be clearly observed in both histogram and density smooth line. This attribute also seems to be a promising predictor.
@@ -194,6 +196,7 @@ For this attribute, no outliers have observed in sample data.
 # 4. residual.sugar
 
 univ_hist("residual.sugar")
+summary(dta$residual.sugar)
 ```
 
 Residual sugar has a positively skewd distribution with noticable outliers. There are a couple of ways to handle outliers:
@@ -248,6 +251,7 @@ From the above log-scaled plot, we can see that the upper-bound outlier for resi
 # 5. chlorides
 
 univ_hist("chlorides")
+summary(dta$chlorides)
 ```
 
 Chlorides distribution is similar to residual sugar, also highly skewed to the right. So we can apply log-scalling for this variable too.
@@ -271,6 +275,7 @@ Now it is more easier to see that chlorides for the majority of data falls withi
 # 6. free.sulfur.dioxide
 
 univ_hist("free.sulfur.dioxide")
+summary(dta$free.sulfur.dioxide)
 
 ```
 
@@ -281,6 +286,7 @@ Free sulfur dioxide is slightly positive skewed, but no outlier handling is need
 # 7. total.sulfur.dioxide
 
 univ_hist("total.sulfur.dioxide")
+summary(dta$total.sulfur.dioxide)
 
 ```
 
@@ -290,6 +296,7 @@ The distribution shape for total sulfur dioxide is very similar to free sulfur d
 # 8. density
 
 univ_hist("density")
+summary(dta$density)
 
 ```
 
@@ -299,6 +306,7 @@ Density looks highly like a normal distribution, with data evenly distributed tw
 # 9. pH
 
 univ_hist("pH")
+summary(dta$pH)
 
 ```
 
@@ -308,6 +316,7 @@ pH also has a distribution very close to Gaussian/normal.
 # 10. sulphate
 
 univ_hist("sulphates")
+summary(dta$sulphates)
 ```
 
 Sulphates has a light tail on the positive side.
@@ -316,6 +325,7 @@ Sulphates has a light tail on the positive side.
 # 11. alcohol
 
 univ_hist("alcohol")
+summary(dta$alcohol)
 ```
 
 Although kernel density shape smoothed out, we can still see the two peaks revealed by its histogram, which might be another promising predictor for wine quality level.
@@ -329,6 +339,164 @@ Observations for univariate exploratory:
     - Volatile acidity, citric.acidity and alcohol have more than one peak observed on histogram or kernel density plot, which seem to be promissing predictors for wine quality level.
 
 ## Bivariate Plot & Analysis
+
+
+According to the source paper, there might be correlation relationship among physicochemical attributes. While idealy predictor variables should be independent to each other to minimize the noise brought by colinearity. So the next step is to check the correlation among these 11 physicochemical variables.
+
+Create a heatmap to show the association patterns:
+
+```{r}
+iv <- dta[,1:11]
+cormat <- round(cor(iv),2)
+melted_cormat <-melt(cormat)
+
+# Function 1: Get lower triangle of the correlation matrix
+  get_lower_tri<-function(cormat){
+    cormat[upper.tri(cormat)] <- NA
+    return(cormat)
+  }
+  # Get upper triangle of the correlation matrix
+  get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)
+  }
+
+# -------------------End of Function 1----------------------------
+
+# Function 2: reorder 
+
+reorder_cormat <- function(cormat){
+# Use correlation between variables as distance
+dd <- as.dist((1-cormat)/2)
+hc <- hclust(dd)
+cormat <-cormat[hc$order, hc$order]
+}
+
+# -------------------End of Function 2----------------------------
+
+# Reorder the correlation matrix
+cormat <- reorder_cormat(cormat)
+upper_tri <- get_upper_tri(cormat)
+
+# Melt the correlation matrix
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+
+# Create a ggheatmap
+ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Pearson\nCorrelation") +
+  theme_minimal()+ # minimal theme
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 12, hjust = 1))+
+ coord_fixed()
+
+```
+
+
+
+
+
+
+```{r, fig.height=6.5, fig.width=6.5}
+ggheatmap + 
+geom_text(aes(Var2, Var1, label = value), color = "black", size = 4) +
+theme(
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  axis.ticks = element_blank(),
+  legend.justification = c(1, 0),
+  legend.position = c(0.6, 0.7),
+  legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                title.position = "top", title.hjust = 0.5))
+```
+
+
+
+From the above heat map, we notice the association patterns among independent variables:
+
+* positive correlated 
+
+
+### Categorical Correlation
+
+```{r}
+## Correlation: Categorical Variable
+
+
+before <- polyserial(dta$chlorides,dta$level)
+after <- polyserial(log10(dta$chlorides), dta$level)
+before
+after
+```
+
+
+```{r, fig.height=8, fig.width=10}
+acidgroup <- dta[,1:4]
+acidgroup$residual.sugar <- log10(acidgroup$residual.sugar)
+pairs.panels(acidgroup, bg=c("blue","grey","red")[dta$level],pch=21,lm=TRUE)
+```
+
+
+
+```{r}
+# create data fame including total 8 candidate predictors 
+# 5 from Incre_group, 3 from Decre_group
+
+candi <- cbind(Incre_group[,1:5],Decre_group[,1:3])
+
+chart.Correlation(candi)
+```
+
+According to Evans (1996), correlation value r can be interpreted as:
+
+*  .00-.19 “very weak”
+*  .20-.39 “weak”
+*  .40-.59 “moderate”
+*  .60-.79 “strong”
+*  .80-1.0 “very strong”
+
+For the above 8 attributes, fixed.acidity shows strong positive correlation with citric.acid and strong negative correlation with pH. Thus, this attribute will not be considered as candidate predictors to minimize colinearity noise. 
+
+Now let's create a heatmap to view the association of the 7 candidate predictors:
+
+```{r}
+# drop fixed.acidity
+candi <- subset(candi, select=-fixed.acidity)
+
+
+```
+
+
+
+```{r}
+
+dat <- dta[,-12]
+
+dat$log_residual.sugar <- log10(dat$residual.sugar)
+dat$log_chlorides <- log10(dat$chlorides)
+
+dat$residual.sugar <- NULL
+str(dat)
+
+
+
+```
+
+
+
+
+
+
+
+
+From the heat map we can see that citric.acid also negative correlated to both volatile.acidity and pH, but since the r values (-0.55 and -0.54) only indicates moderate correlation, we can still keep it for prediction.
+
 
 In the above section, we found that there are some wine samples denser than water, and one possible cause could be high sulcose content. To find out, let's investigate how density is related to residual sugar. Since residual sugar has some significant outliers, we will apply log scalling for residual sugar.
 
@@ -537,40 +705,6 @@ So far, we shrinked down predictor variables from 11 attributes to 8.
 
 ## Multi-variate Plot & Analysis
 
-According to the source paper, there might be correlation relationship among physicochemical attributes. While idealy predictor variables should be independent to each other to minimize the noise brought by colinearity. So the next step is to check the correlation among these 8 candidate predictors to help further select the independent ones. 
-
-Create correlation chart for 8 candidate predictors: 
-
-```{r}
-# create data fame including total 8 candidate predictors 
-# 5 from Incre_group, 3 from Decre_group
-
-candi <- cbind(Incre_group[,1:5],Decre_group[,1:3])
-
-chart.Correlation(candi)
-```
-
-According to Evans (1996), correlation value r can be interpreted as:
-
-*  .00-.19 “very weak”
-*  .20-.39 “weak”
-*  .40-.59 “moderate”
-*  .60-.79 “strong”
-*  .80-1.0 “very strong”
-
-For the above 8 attributes, fixed.acidity shows strong positive correlation with citric.acid and strong negative correlation with pH. Thus, this attribute will not be considered as candidate predictors to minimize colinearity noise. 
-
-Now let's create a heatmap to view the association of the 7 candidate predictors:
-
-```{r}
-# drop fixed.acidity
-candi <- subset(candi, select=-fixed.acidity)
-
-# heat map
-source("http://www.sthda.com/upload/rquery_cormat.r")
-rquery.cormat(candi)
-```
-From the heat map we can see that citric.acid also negative correlated to both volatile.acidity and pH, but since the r values (-0.55 and -0.54) only indicates moderate correlation, we can still keep it for prediction.
 
 The next step is to build a prediction model by fitting the above 7 predictors.
 
@@ -754,4 +888,10 @@ In this study, we applied random forest algorithm to predict wine quality level.
 
 4. Evans, J. D. (1996). Straightforward statistics for the behavioral sciences. Pacific Grove, CA: Brooks/Cole
 Publishing.
+
+5. Correlation Coefficients: Describing Relationships
+(https://www.rasch.org/rmt/rmt193c.htm)
+
+6. ggplot2: Quick correlation matrix heatmap
+(http://www.sthda.com/english/wiki/ggplot2-quick-correlation-matrix-heatmap-r-software-and-data-visualization)
 
