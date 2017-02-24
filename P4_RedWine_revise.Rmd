@@ -1,7 +1,7 @@
 ---
 title: "Red Wine Quality Prediction"
 author: "Wen Yang"
-date: "February 20, 2017"
+date: "February 23, 2017"
 output: 
   html_document: 
     number_sections: yes
@@ -26,6 +26,7 @@ library(randomForest)
 library(ggthemes)
 library(psych)
 library(polycor)
+library(magrittr)
 # library(plotly)
 ```
 
@@ -322,6 +323,7 @@ The distribution shape for total sulfur dioxide is very similar to free sulfur d
 ```{r}
 sulf_var <- data.frame(var(dta$free.sulfur.dioxide),
                        var(dta$total.sulfur.dioxide))
+
 sulf_var
 
 ```
@@ -389,71 +391,72 @@ Another note is that  *quality* instead of *level* will be used to compute corre
 * level is a variable derived from quality, and intunitively we are interested in whether increasing a certain attribute would contribute to increasing or decreasing in wine quality response. Therefore, if correlation relationship is observed between an independent variable and original dependent variable *quality*, we can extend the conclusion to *level* too. 
 * For simpliticity and consistency, correlation matrix for all numerical type is relative easy to read and to interpret.
 
-Therefore, we will first re-organize the dataset, and then check the correlation. To better view the strength of association patterns, we will customize a correlation heatmap:
-
 ```{r}
 # Create dataset not including "level"
-dt <- dta[,1:12]
+dt <- dta[,1:11]
 dt$log_residual.sugar <- log10(dt$residual.sugar)
 dt$log_chlorides <- log10(dt$chlorides)
 dt$residual.sugar <- NULL
 dt$chlorides <- NULL
 
+dt$quality <- dta$quality
+
 # calculate correlation
 cormat <- round(cor(dt),2)
-```
 
-```{r}
-# ----Function for Triangle style -------------
-
-# Get lower triangle of the correlation matrix
-  get_lower_tri<-function(cormat){
-    cormat[upper.tri(cormat)] <- NA
-    return(cormat)
-  }
 # Get upper triangle of the correlation matrix
-  get_upper_tri <- function(cormat){
-    cormat[lower.tri(cormat)]<- NA
-    return(cormat)
-  }
+cormat[lower.tri(cormat)] <- NA
 
+# Convert correlation mattrix to long-format 
+melt_mat <- melt(cormat, na.rm = TRUE)
 ```
+
+To better view the strength of association patterns, we will customize a correlation heatmap:
 
 ```{r}
-# Apply Upper triangle style
-upper_tri <- get_upper_tri(cormat)
 
-# Melt the correlation matrix
-melted_cormat <- melt(upper_tri, na.rm = TRUE)
+# The below function is created for creating a customized correlation heatmap
+# It is inspired by Reference No.6
 
-# Create a ggheatmap
-ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
- geom_tile(color = "white")+
- scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
-   midpoint = 0, limit = c(-1,1), space = "Lab", 
+
+heat<-function(melt_mat){
+  
+  # Create heatmap
+  ggheatmap <- ggplot(melt_mat, aes(Var2, Var1, fill = value))+
+    geom_tile(color = "white")+
+    scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+    midpoint = 0, limit = c(-1,1), space = "Lab", 
     name="Pearson\nCorrelation") +
-  theme_minimal()+ # minimal theme
- theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    theme_minimal()+ # minimal theme
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, 
     size = 12, hjust = 1))+
- coord_fixed()
+    coord_fixed()+ 
+    
+    geom_text(aes(Var2, Var1, label = value), color = "black", size = 4) +
+    theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank(),
+    legend.justification = c(1, 0),
+    legend.position = c(0.6, 0.7),
+    legend.direction = "horizontal")+
+    guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                title.position = "top", title.hjust = 0.5))
+
+  return(ggheatmap)
+}
+
 
 ```
+
 
 ```{r, fig.height=6.5, fig.width=6.5}
-ggheatmap + 
-geom_text(aes(Var2, Var1, label = value), color = "black", size = 4) +
-theme(
-  axis.title.x = element_blank(),
-  axis.title.y = element_blank(),
-  panel.grid.major = element_blank(),
-  panel.border = element_blank(),
-  panel.background = element_blank(),
-  axis.ticks = element_blank(),
-  legend.justification = c(1, 0),
-  legend.position = c(0.6, 0.7),
-  legend.direction = "horizontal")+
-  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
-                title.position = "top", title.hjust = 0.5))
+#heat map for all
+heat(melt_mat)
+
 ```
 
 According to Evans (1996), correlation value r can be interpreted as below:
@@ -464,27 +467,159 @@ According to Evans (1996), correlation value r can be interpreted as below:
 *  .60-.79 \ "strong"
 *  .80-1.0 \ "very strong"
 
-In relate to our heat map, we can summarize the association patterns in two groups:
+Now let's look at the moderate or strong correlated pairs only:
 
-1. Strong Correlation:
-    - fixed.acidity vs citric.acid: positive +
-    - fixed.acidity vs density: positive +
-    - free.sulfur.dioxide vs total.sulfur.dioxide: positive +
-    - fixed.acidity vs pH: negative -
+```{r, fig.height=6.5, fig.width=6.5}
 
-2. Moderate Correlation:
-    - alcoholvs quality: positive +
-    - density vs log10 transformed residual.sugar: positive +
-    - volatile.acidity vs citric.acid: negative -
-    - citric.acid vs pH: nagative -
+# heat map for moderate or strong correlation only
+mod_strong <- subset(melt_mat, value >= 0.4|value<=-0.4)
 
-Among the above 8 pairs, we can see only alcohol show moderate correlation to quality.
+heat(mod_strong)
 
-Fixed.acidity is strongly correlated to citric.acid, density and pH. Free.sulfur.dioxide is strongly correlated to total.sulfur.dioxide, which again is not surprising since it is a subset. So for any strong correlated pairs, we need pick candidate predictors very carefully to minimize colinearity noise. 
+```
 
-Another interesting observation is that after applying transformation to residual sugar, this variable do observe moderate correlation to density. In the univariate section, we did suspect that the cause for some wine samples denser than water could be high sulcose content. Moderate correlation seems encouraging our suspicion.
+From above heat map, we can see there are 9 pairs show moderate or strong association patterns in our dataset.
+Along the y-axis label, let's summarize the association patterns as below:
 
-To end this correlation check, We can add one more comparison by computing the polyserial correlation between *alcohol* vesus categorical variable *level*:
+1. fixed.acidity correlated to:
+    - citric.acid
+    - density
+    - pH
+2. volatile.acidity correlated to:
+    - citric.acid
+3. citric.acid correlated to:
+    - pH
+4. free.sulfur.dioxide correlated to
+    - total.sulfur.dioxide
+5. density correlated to
+    - alcohol
+    - log_residual.sugar
+6. alcohol correlated to
+    - quality
+
+Now let's create 6 plots to visualize correlated pairs.
+First, let's check the fixed.acidity correlated variables:
+
+```{r}
+# 1. fixed.acidity correlated variables
+
+g1 <- ggplot(dt, aes(x=citric.acid, y=fixed.acidity)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+
+g2 <- ggplot(dt, aes(x=fixed.acidity, y=density)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+
+g3 <- ggplot(dt, aes(x=fixed.acidity, y=pH)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+
+grid.arrange(g1,g2,g3, ncol=3)
+
+```
+
+The way we arrange variable on x-axis is based on possible causal relationship:
+
+* Citric.acid is one of the contributer to fixed.acidity. So it's likely that the increase of citric.acid caused the increase of fixed.acidity, not the other way around.
+* It is more likely that fixied.acidity contributing to denser wine, instead of density affecting fixed.acidity.
+* The causal direction is clear between fixed.acidity and pH: the higher the fixed.acidity, the lower pH value.
+
+Second, let's check volatile.acidity correlated variable citric.acid:
+```{r}
+# 2. volatile.acidity correlated to citric.acid
+
+ggplot(dt, aes(x=citric.acid, y=volatile.acidity)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+```
+
+For this particular pair, there should not be any causal effect since citric.acid is non-volatile organic acids. The observed correlation is possible due to the ratio competiton between volatile.acidity and non-volatile acidity.
+
+The 3rd pair is citric.acid and pH:
+
+```{r}
+# 3. citric.acid correlated to pH
+
+ggplot(dt, aes(x=citric.acid, y=pH)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+```
+
+It is clear that the higher ciric.acid contribute to lower pH value.
+
+The 4th pair is free.sulfur.dioxide vesus total.sulfur.dioxide:
+
+```{r}
+# 4. free.sulfur.dioxide correlated to total.sulfur.dioxide
+
+ggplot(dt, aes(x=free.sulfur.dioxide, y=total.sulfur.dioxide)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+
+```
+
+The correlation between free.sulfur.dioxide and total.sulfur.dioxide is not surprising, since one is the subset of the other one.
+
+Next, let's check the 5th variable density. Other than correlated to fixed.acidity, density is also correlated alcohol and log-transformed residual.sugar:
+
+```{r}
+# density is correlated to fixed.acidity, alcohol and log-transformed residual.sugar
+
+g1 <- ggplot(dt, aes(x=fixed.acidity, y=density)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+g2 <- ggplot(dt, aes(x=alcohol, y=density)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+g3 <- ggplot(dt, aes(x=log_residual.sugar, y=density)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+
+grid.arrange(g1,g2,g3, ncol=3)
+```
+
+In the univariate section, we saw some wine samples denser than water, and one of our hypothesis is that those samples with high sulcose content. From the fixed.acidity correlation analysis, we also found density is positive correlated to fixed.acidity. Now let's find out which one plays a major role in causing denser wine.
+
+Wine samples with density greater than 1 have been defined as *Dense Wine*, and those with density less or equal than 1 have been defined as *Regular Wine*.
+
+```{r}
+# 5. density correlated to fixed.acidity, alcohol, log_residual.sugar
+g1 <- ggplot(dt, aes(x=log_residual.sugar, y=density, 
+                color=ifelse(density>1, "Dense Wine","Regular Wine"))) + 
+  labs(color="Density") +
+  geom_point(alpha=0.4) + 
+  geom_smooth(method=lm, se=FALSE) +
+  theme(legend.position="none")
+
+  
+g2 <- ggplot(dt, aes(x=fixed.acidity, y=density, 
+                color=ifelse(density>1, "Dense Wine","Regular Wine"))) +
+  labs(color="Density") +
+  geom_point(alpha=0.4) + 
+  geom_smooth(method=lm, se=FALSE)+
+  theme(legend.position="none")
+
+# Get common legend
+g<- ggplotGrob(g1 + theme(legend.position="right"))$grobs
+legend <- g[[which(sapply(g, function(x) x$name) == "guide-box")]]
+
+grid.arrange(g1,g2,legend, ncol=3, widths= c(3,3,1.5))
+
+
+```
+
+Observations:
+
+* The relationship between residual.sugar and density is consistent in both Regular Wine and Dense Wine groups, as we can see the slope of esimated fitting lines are almost parallel.
+* Fixed.acidity plays a more siginficant impact on Regular Wine but not on Dense Wine group. The estimated slope for the latter group is much flatter than the formal one.
+
+In short, residual.sugar is more likely to be the cause of denser wine.
+
+Next, let's look at the last pair: alcohol and quality. 
+Among all 11 physicochemical attributes, alcohol is the only attribute show moderate or above correlation with wine quality, which might indicates its significance as a predictor for wine quality.
+
+```{r}
+# 6. Alcohol vs quality
+
+ggplot(dt, aes(x=alcohol, y=quality)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+```
+
+From y-axis, we can actually see points are roughly grouped at 3 discrete level: quality score 5, 6, and 7.
+
+Let's add one more comparison by computing the polyserial correlation between *alcohol* vesus target categorical variable *level*:
 
 ```{r}
 ## Correlation: Categorical Variable
@@ -499,121 +634,44 @@ cat("\n")
 cat('Correlation Quality vs Level:', cor3)
 ```
 
-Now we can assured that the association patterns analyzed for *quality* are reprentative for our categorical variable *level* as well.
+Here we see the two correlations are very close, and the polyserial correlation is even a bit higher.
 
-The next step is to visualize the pairs we found having strong or moderate correlation.
-Let's begin with the strong correlated pairs:
-
-```{r, fig.height=6, fig.width=6}
-g1 <- ggplot(dt, aes(x=citric.acid, y=fixed.acidity)) + 
-  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
-
-g2 <- ggplot(dt, aes(x=fixed.acidity, y=density)) + 
-  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
-
-g3 <- ggplot(dt, aes(x=fixed.acidity, y=pH)) + 
-  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
-
-g4 <- ggplot(dt, aes(x=free.sulfur.dioxide, y=total.sulfur.dioxide)) + 
-  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
-
-grid.arrange(g1,g2,g3,g4, ncol=2)
-
-```
-
-Citric.acid is one of the contributer to fixed.acidity. So it's likely that the increase of citric.acid caused the increase of fixed.acidity, not the other way around.
-
-Similarly, the increase of free.sulfur.dioxide can explain the increasing trend in total.sulfur.dioxide, not the other way around.
-
-The positive relationship between fixied.acidity and density might just revealed another factor contributing to denser wine.
-
-The causal direction is clear between fixed.acidity and pH: the higher the fixed.acidity, the lower pH value.
-
-Therefore, for further reference, if we need to choose predictors among those pair, we should prioritize the ones with causal power instead of the responsive ones.
-
-Next, let's also visualize the pairs with moderate correlate correlation:
+We used quality to check correlation for simplicity reason., since our ultimate goal is to predict variable *level*, let's check how 11 physicochemical attributes interacting with our target response variable *level* by boxplots.
 
 
-```{r, fig.height=4, fig.width=6}
-g1 <- ggplot(dt, aes(x=citric.acid, y=volatile.acidity)) + 
-  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
-
-g2 <- ggplot(dt, aes(x=citric.acid, y=pH)) + 
-  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
-
-grid.arrange(g1,g2, ncol=2)
-
-```
-
-Actually, citric.acid is non-volatile organic acids, so there should not be any causal effect between citric acid and volatile.acidity. Instead, it is due to the ratio competiton between volatile.acidity and non-volatile acidity.
-
-It is clear that the higher ciric.acid would contribute to lower pH value.
-
-Next, let's review the causes for denser wine.
-Wine samples with density greater than 1 have been defined as *Dense Wine*, and those with density less or equal than 1 have been defined as *Regular Wine*.
-
-```{r, fig.height=6.5, fig.width=5}
-g1 <- ggplot(dt, aes(x=log_residual.sugar, y=density, 
-                color=ifelse(density>1, "Dense Wine","Regular Wine"))) + 
-  labs(color="Density") +
-  geom_point(alpha=0.4) + 
-  geom_smooth(method=lm, se=FALSE)+
-  theme(legend.position="top")
-  
-g2 <- ggplot(dt, aes(x=fixed.acidity, y=density, 
-                color=ifelse(density>1, "Dense Wine","Regular Wine"))) +
-  labs(color="Density") +
-  geom_point(alpha=0.4) + 
-  geom_smooth(method=lm, se=FALSE)+
-  theme(legend.position="bottom")
-
-grid.arrange(g1,g2)
-
-```
-
-For Regular Wine group, the residual sugar level is condensed in the range from 10^0.2^ (1.58) to 10^0.4^ (2.51). While for the Dense Wine group, the majority data are within range from 2 to 4. 
-
-Since we also suspect that fixed.acidity might be another factor contributing wine density, let's create similar plots to see whether that will help explain the variance.
-
-
-Though the overlap between two ranges might suggest there are other parameters also contributing wine density, we can still infer that density is positive correlated to residual sugar for both dense wine and regular wine groups. For future study topics, we can run t-test to see whether the difference is statistically significant, which is not included in this study. 
-
-In order to build predictive model, we need to understand the association patterns between these physicochemical attributes  and our dependent variable *level*.
-
-Since residual sugar and chlorides have significant outliers, we will apply log transformation for these two variables first, then develop a function to create boxplots for all 11 attributes.
 
 ```{r}
-# Apply log10 transformation to residual sugar and chlorides.
-trans <- dta[,2:12] # No need to include column X and quality
-trans$log_residual.sugar <- log10(trans$residual.sugar)
-trans$log_chlorides <- log10(trans$chlorides)
 
-trans<- subset(trans, select=-c(residual.sugar,chlorides))
-trans$level <- dta$level
+#
+cor_quality <- melt_mat %>%
+  subset(Var2=="quality") %>%
+  subset(Var1!="quality") %>%
+  arrange(-abs(value))
 
+cor_quality
 ```
 
-```{r}
-# Create a empty list to hold plots
-plot_list <- list()
-nplot = 11
 
-ind_names <- names(trans)[1:11]
 
-for (i in seq(nplot)){
-  new_plot <- ggplot(trans,aes_string(y=ind_names[i])) +
-    geom_boxplot(aes(x=level))
-  plot_list <- c(plot_list,list(new_plot))
-}
 
-```
 
-Boxplot for acidity group:
 
-```{r, message=FALSE, warning=FALSE}
-# print the first 3 boxplots on plot_list
-do.call(grid.arrange, c(plot_list[1:3], ncol=3))
-```
+ 
+
+
+
+
+
+
+
+
+So let's 
+
+
+
+
+
+
 
 Observations: 
 * positive correlated to level: fixed.acidity and citric.acid
@@ -764,8 +822,54 @@ So far, we shrinked down predictor variables from 11 attributes to 8.
 ## Multi-variate Plot & Analysis
 
 
+Observations:
+
 ```{r}
-ggplot(dta, aes(y=alcohol, x=log10(residual.sugar), colour=level)) +
+ggplot(dta, aes(y=citric.acid, x=fixed.acidity, colour=level)) +
+  geom_point(alpha=0.3, position = position_jitter()) +
+  stat_smooth(method="lm", se=FALSE)
+```
+
+* at given fixed.acidity level, the higher citric.acid, the higher wine quality level. citirc.acid is indeed a import facotrs contributing to wine quality
+* 
+
+Let's move to another strongly positive correlated group fixed.acidity and density:
+
+```{r}
+ggplot(dta, aes(y=density, x=fixed.acidity, colour=level)) +
+  geom_point(alpha=0.3, position = position_jitter()) +
+  stat_smooth(method="lm", se=FALSE)
+```
+
+Observations:
+
+* Given same density, the higher the fixed.acidity, the higher wine quality
+
+Check the Strong correlated group in terms of level:
+
+```{r}
+# fixed.acidity and citric.acid has positive strong correlation
+
+ggplot(dta, aes(x=citric.acid,y=alcohol,  colour=level)) +
+  geom_point(alpha=0.3, position = position_jitter()) +
+  stat_smooth(method="lm", se=FALSE)
+```
+
+
+fixeed.acidty and pH
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+ggplot(dta, aes(y=citric.acid, x=log10(residual.sugar), colour=level)) +
   geom_point(alpha=0.3, position = position_jitter()) +
   stat_smooth(method="lm", se=FALSE)
 ```
@@ -773,16 +877,27 @@ ggplot(dta, aes(y=alcohol, x=log10(residual.sugar), colour=level)) +
 
 
 ```{r}
-ggplot(dta, aes(x=density, y= alcohol, colour=level)) +
+ggplot(dta, aes(x=citric.acid, y= pH, colour=level)) +
+  facet_wrap(~ level) +
+  geom_point(alpha=0.3, position="jitter") +
+  geom_boxplot(alpha=0, colour="black")
+```
+
+```{r}
+ggplot(dta, aes(x=fixed.acidity, y= pH, colour=level)) +
   facet_wrap(~ level) +
   geom_point(alpha=0.3, position="jitter") +
   geom_boxplot(alpha=0, colour="black")
 ```
 
 
+
 ```{r}
+ggplot(dta, aes(x=fixed.acidity, y=density)) +
+  geom_smooth(aes(colour=level, fill=level)) + facet_wrap(~level)
+```
 
-
+```{r}
 ggplot(dta, aes(x=alcohol, y=density)) +
   geom_smooth(aes(colour=level, fill=level)) + facet_wrap(~level)
 ```
