@@ -1,0 +1,703 @@
+---
+title: "Red Wine Quality Prediction"
+author: "Wen Yang"
+date: "February 23, 2017"
+output: 
+  html_document: 
+    number_sections: yes
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+# Import libraries
+library(ggplot2)
+library(MASS) 
+library(dplyr)
+library(gridExtra)
+library(corrplot)
+library(PerformanceAnalytics)
+library(reshape2)
+library(xtable)
+library(grid)
+library(caret)
+library(randomForest)
+library(ggthemes)
+library(psych)
+library(polycor)
+library(magrittr)
+# library(plotly)
+```
+
+# Introduction
+
+The objective of this study is to build a classification model to predict red wine quality based on given physicochmeical characteristics. The dataset used for this analysis includes 1599 red wine samples with 11 physicochemical attributes like *alcohol* or *pH*, and 1 sensory attribute called *quality*. More details on the dataset can be referred to the original paper [Cortez et al., 2009](http://projects.csail.mit.edu/wiki/pub/Evodesign/SensoryEvaluationsDatabase/winequality09.pdf).
+
+# Exploratory Data Analysis (EDA)
+
+In EDA phase, data is mainly explored by graphical visualizations assisted with descriptive statistics to help understand the distribution of univariate as well as the the association relationships between variables. EDA discovery will lay the foundation to help select important attributes to build red wine quality prediction model.
+
+To begin with, let's load the Red Wine csv file and preview the dataset.
+
+```{r}
+dta <- read.csv('wineQualityReds.csv')
+head(dta)
+```
+
+It's also necessary to check the bottom of the dataset to make sure the format consistency and be aware of situations like comment lines at the end of a dataset.
+
+```{r}
+tail(dta)
+```
+
+The data is formated consistently and ready for analysis. Now let's check overall structure.
+
+```{r}
+str(dta)
+```
+
+Observations:
+
+* Sample size is 1599, with 13 variables, which all are numerical type.
+* There are 11 variables with continuous numerical value, which are physicochemical attributes of wine samples.
+* There are 2 variables represented by integers:
+    - *X*: representing the index of sample identifier, which will not be included for further analysis.
+    - *quality*: according to source description, quality data is developed based on the median value of sensory evaluation given by at least three wine experts. Wine experts judged those samples using the rule that "0 means very bad and 10 means excellent", which means the larger the quality number, the higher the wine quality. This is also the dependent variable of interest and the next step is to look at how the quality distributed in our sample data.
+
+```{r}
+# remove 1st column X
+dta$X <- NULL
+
+```
+
+
+## Univariate Plot & Analysis
+
+The focus of this section is to understand the distribution characteristics for each variable, which would help to reveal data central tendency, extreme outliers as well as any needs for data transformation.
+
+### Dependent Variable
+
+We start with creating a bar plot for the dependent variable *quality*. 
+
+```{r}
+# bar plot for quality
+ggplot(dta, aes(x=factor(quality))) + geom_bar() + xlab("Quality")
+
+```
+
+Quality in our samples ranges from 3 to 8, and the majority samples have quality score 5 or 6. Noticed that the absence of "Excellent:10" or "Very bad:0" scores probably indicates there is no outliers in terms of red wine quality, although it is also possible due to that people tend to avoid giving extreme judgements. 
+
+Let's also see the statistic summary.
+
+```{r}
+summary(dta$quality)
+```
+
+Observations:
+
+* Quality score 5 and 6 also mark the 1st and 3rd quartile of data respectively. 
+    - 25% of samples with quality score below 5
+    - 75% of samples with quality score above 6.
+* The quality score is created by taking the median of at least three evaluations. This measure can be considered as a method to counter the personal bias in terms of flavor preferences. Therefore, we can assume the quality score is unbiased and score is directly related wine quality.
+* However, it might be safe to interpret that wine samples with quality score 8 are much better than those with quality score 3 , it is hard to differenciate whether the differnce in score 4 group and score 3 group is due to quality variation or due to human interpretation on number categories. For example, one expert might use 8 to represent high quality sensory experience with one sample, and another expert might think 7 already represent high quality wine. In other words, though we know the higher the better, the variance may come from human
+perception differences on those number categories. 
+* Therefore, the next step is to create a new categorical variable "level" to represent wine quality in 3 levels to reduce the perception noise:
+
+  - "Low": quality score 3 or 4
+  - "Medium": quality score 5 or 6
+  - "High": quality score 7 or 8
+
+```{r}
+# Define a new variable: level
+
+dta$level[dta$quality>=7]<- "High"
+dta$level[dta$quality>=5 & dta$quality<7]<- "Medium"
+dta$level[dta$quality<5]<- "Low"
+dta$level<-factor(dta$level,levels=c("Low","Medium","High"))
+
+```
+
+```{r}
+# Replot the quality data
+
+ggplot(dta, aes(factor(quality), fill=level)) + geom_bar() + xlab("Quality")
+
+```
+
+The categorical variable *level* will be our new dependent variable. Instead of predicting the exact quality score, our goal is to predict the quality level given certain physicochemcial attributes.
+
+The next step is to check the independent variable group.
+
+### Independent Variables
+
+Independent variable group includes 11 attributes and all of them are continuous numerical variables. To better visualize the central tendency as well as detect the presence of any outliers, it would be helpful to overlay the key statistics like median and outliers on distribution plots. Since there are 11 of them, we will write functions for outlier computation as well as for univariate distribution plotting. 
+
+```{r}
+
+# Function to compute median and outliers given column number dataset
+
+univ_line <- function(feature){
+  valmedian <- median(dta[[feature]])
+  valiqr <- IQR(dta[[feature]])
+  val_q1 <- valmedian - valiqr
+  val_q3 <- valmedian + valiqr
+
+# Lower-bound outlier can not be nagative
+  val_outlier <- c(max(val_q1-1.5*valiqr,0),val_q3+1.5*valiqr) 
+  val_lines <- c(val_outlier, valmedian)
+  
+  return(val_lines)
+}
+
+```
+
+```{r}
+
+# Function for plotting univariate histogram given variable name
+
+univ_hist <- function(feature) {
+  ggplot(dta,aes_string(x = feature)) +
+    geom_histogram(aes(y=..density..), colour="black", fill="white") + 
+    geom_density(alpha=.2, fill="#FF6666") +
+    geom_vline(xintercept=univ_line(feature), linetype="longdash",colour="red") 
+}
+
+```
+
+```{r}
+
+# 1. fixed.acidity 
+
+univ_hist("fixed.acidity") + 
+  annotate("text", univ_line("fixed.acidity")+1, y=0.3, label=c("Lower Outlier","Upper Outlier","Median"))
+
+summary(dta$fixed.acidity)
+
+
+```
+
+There are 3 red dash lines imposed to histogram-density plot to mark the lower-bound outlier, median and upper-bound outlier respectively.
+
+Fixed acidity falling within a range from 4.6 to 15.9 is close to Gaussian distribution. There are a few samples above upper-bound outlier line but no special handling is required for this attribute. 
+
+```{r}
+# 2. volatile.acidity 
+
+univ_hist("volatile.acidity")
+summary(dta$volatile.acidity)
+```
+
+Volatile acidity seems to have bimodal distribution, as the kernel density plot suggested. This attribute might be a promising predictor since two modes might be signal for different classes in our new dependent variable *level*. There are also a few upper-bound outliers observed, but no special outlier handling is required. 
+
+```{r}
+# 3. citric.acid
+
+univ_hist("citric.acid")
+summary(dta$citric.acid)
+```
+
+Citric acid data have three peaks clearly observed in both histogram and density smooth line. This attribute also seems to be a promising predictor.
+
+For this attribute, data ranges from 0 to 1, sample mean is very close to median, and data has no outliers. 
+
+```{r}
+# 4. residual.sugar
+
+univ_hist("residual.sugar")
+summary(dta$residual.sugar)
+
+```
+
+Residual sugar has a positively skewd distribution with noticable outliers. 
+
+```{r}
+outlier <- max(univ_line("residual.sugar"))
+cat("\n")
+cat('Upper-bound Outlier is:', outlier)
+```
+
+
+As we can see, the upper-bound outlier is about 4, which is far less than the maximum value 15.5 in sample data. The The presence of outliers might affect both assumptions and results of logistic regression model, since outliers could add huge penalty when residual error is squared. 
+
+There are a couple of ways to handle outliers:
+
+* remove outliers from original dataset: not adopted since we are not sure whether the outliers are part of data characteristics or due to incorrect collection process.
+* data transformation: 
+    - scale transformation for better view of central tendency
+    - actual transformaiton to variables: this step might be needed if we decide to use this variable for prediction model. 
+
+Both Square root and log transformations can pull in large numbers, so let's compare them both:
+
+```{r, fig.height=3.5, fig.width=8.5}
+# 4. residual.sugar
+
+# calculate the intercept lines for square transformated data
+g1_intercept <- sqrt(univ_line("residual.sugar"))
+g1 <- ggplot(dta,aes(sqrt(residual.sugar))) +
+    geom_histogram(aes(y=..density..), colour="black", fill="white") +
+    geom_density(alpha=.2, fill="#FF6666") +
+    geom_vline(xintercept=g1_intercept, linetype="longdash",colour="red") +
+  ggtitle("Square Root Transformation")
+
+# calculate the intercept lines for Log10 transformated data
+g2_intercept <- log10(univ_line("residual.sugar"))
+g2 <- ggplot(dta,aes(log10(residual.sugar))) +
+    geom_histogram(aes(y=..density..), colour="black", fill="white") +
+    geom_density(alpha=.2, fill="#FF6666") +
+    geom_vline(xintercept=g2_intercept, linetype="longdash",colour="red")+
+  ggtitle("Log10 Transformation")
+
+grid.arrange(g1,g2, ncol=2)
+
+```
+
+Although outliers can still be observed after both transformation, Log10 transformation provides a better performance--the kernel density plot is close to bell shape, while the distribution produced by square root transformationdistribution still has a relatively obvious tail on the right. So for further analysis, log10 transformation can be applied if residual sugar is selected as predictor.
+ 
+At this point, we can use log scale to better view the original data range:
+    
+```{r}
+# 4. residual.sugar
+
+univ_hist("residual.sugar") +
+    scale_x_log10(
+   breaks = scales::trans_breaks("log10", function(x) 10^x),
+   labels = scales::trans_format("log10", scales::math_format(10^.x))
+    ) +
+  annotation_logticks(sides="b")
+
+```
+
+From the above log-scaled plot, we can see that data within range 1 to 4 is very close to normal distribution.
+
+```{r}
+# 5. chlorides
+
+univ_hist("chlorides")
+summary(dta$chlorides)
+```
+
+Chlorides distribution is even more positively skewed than residual sugar: the maximum value goes up to 0.6, which is about 60 times larger than the 3rd quartile value 0.09. Similarly, to pull in large numbers, we can apply log10 transformation if this varaible is selected as predictor. For now, we just use log-scaling to better view the distribution.
+
+```{r}
+# 5. chlorides
+
+# Apply log-scaling for variable chlorides
+univ_hist("chlorides") +
+    scale_x_log10(
+   breaks = scales::trans_breaks("log10", function(x) 10^x),
+   labels = scales::trans_format("log10", scales::math_format(10^.x))
+    ) +
+  annotation_logticks(sides="b")
+
+# print outlier
+outlier <- max(univ_line("chlorides"))
+cat("\n")
+cat('Upper-bound Outlier is:', outlier)
+
+```
+
+After transformation, we can see the x-axis label 10^(-1) is in the middle of median and upper bound outlier. And it is also easy to see that the majority data falls within 0.04 to 0.129 (upper-bound outlier), with the median value 0.08.
+
+```{r}
+# 6. free.sulfur.dioxide
+
+univ_hist("free.sulfur.dioxide")
+summary(dta$free.sulfur.dioxide)
+
+```
+
+Free sulfur dioxide is slightly positive skewed, which the maximum value 72 is about 3.5 times of third quartile.For this variable, outlier handling is not needed since the scale can capture the majority of sample data.
+    
+   
+```{r}
+# 7. total.sulfur.dioxide
+
+univ_hist("total.sulfur.dioxide")
+summary(dta$total.sulfur.dioxide)
+
+```
+
+The distribution shape for total sulfur dioxide is very similar to free sulfur dioxide, which makes sense since free sulfur dioxide is a subset of total sulfur dioxide. However the ratio of maximum value to 3rd quartile (4.7) is greater than the same ratio observed in free.sulfur dioxide, which also makes sense since the subset only contributes part of the variance. Now let's compare their variance:
+
+```{r}
+sulf_var <- data.frame(var(dta$free.sulfur.dioxide),
+                       var(dta$total.sulfur.dioxide))
+
+sulf_var
+
+```
+
+Not surprised, total sulfur dioxide does have larger variance than free sulfur dioxide. For total sulfur dioxide, there is no need for transformation since the scale can still depict the majority trend.
+
+```{r}
+# 8. density
+
+univ_hist("density")
+summary(dta$density)
+
+```
+
+Density looks highly like a normal distribution, with data evenly distributed two sides from median. It is worth noticed that the data range for this variable is very small--from 0.99 to 1. The majority samples with density less than 1 makes sense since the density of ethanol is less than water. One possible cause for wine denser than water could be high sugar level since the density of sucrose is about 1.59 g/cm^3^. We can further compare relationship between density and residual sugar in bivariate section.
+
+```{r}
+# 9. pH
+
+univ_hist("pH")
+summary(dta$pH)
+
+```
+
+All wine samples with pH values lie on the acidic side of pH spectrum: from 2.7 to 4. The pH distribution is another one very close to Gaussian/normal bell shape.
+
+```{r}
+# 10. sulphate
+
+univ_hist("sulphates")
+summary(dta$sulphates)
+```
+
+For sulphates, we can see a light tail on the positive side. Data ranges from 0.33 to 2, and the ratio of maximum value to 3rd quartile is about 3, also indicating the slight positive skewed trend, but no need for outlier handling.
+
+```{r}
+# 11. alcohol
+
+univ_hist("alcohol")
+summary(dta$alcohol)
+```
+
+For alcohol, the majority of data within range of 8.8 to 12.5. We can observe the two peaks revealed by the above plot, which might be signal for another promising predictor.
+
+Observations for univariate exploratory:
+
+* 2 attributes are normallly distributed: density and pH.
+    - density : there are samples with density greater than 1. In bivariate section, we will further investigate the cause by examing how density is related to residual sugar. 
+* the other 9 attributes are more or less positively skewed:
+    - residual.sugar and chlorides are highly skewed to the right, log-scalling is applied to both variables to better view the central tendency.
+    - Volatile acidity, citric.acidity and alcohol seem to be promissing predictor since there are more than one peaks observed on histogram or kernel density plots. This kind of characteristic might be signal for different categories of new response variable *level*.
+    
+## Bivariate Plot & Analysis
+
+One comment from the meta data, variables in this dataset might be correlated. This indicates us two things:
+
+* If correlation relationship observed between independent variable and dependent variable, the strenth of correlation couldl us to select predictors;
+* However, if strong correlation observed between independent variable pairs, we must carefully remove some variables to reduce the multicolinearity issue.
+
+Since correlation is a measure for linear relationship, which is sensitive to outliers, we will apply log10 transformation to residual sugar and chlorides to reduce the effect.
+
+Another note is that  *quality* instead of *level* will be used to compute correlation matrix for the below reasons:
+
+* Though we can use ployserial correlation to quantify the relathionship between continous variable and dichotomous variable, this method would mute most of subtle differences since only means were compared for three categories.
+* level is a variable derived from quality, and intunitively we are interested in whether increasing a certain attribute would contribute to increasing or decreasing in wine quality response. Therefore, if correlation relationship is observed between an independent variable and original dependent variable *quality*, we can extend the conclusion to *level* too. 
+* For simpliticity and consistency, correlation matrix for all numerical type is relative easy to read and to interpret.
+
+```{r}
+# Create dataset not including "level"
+dt <- dta[,1:11]
+dt$log_residual.sugar <- log10(dt$residual.sugar)
+dt$log_chlorides <- log10(dt$chlorides)
+dt$residual.sugar <- NULL
+dt$chlorides <- NULL
+
+dt$quality <- dta$quality
+
+# calculate correlation
+cormat <- round(cor(dt),2)
+
+# Get upper triangle of the correlation matrix
+cormat[lower.tri(cormat)] <- NA
+
+# Convert correlation mattrix to long-format 
+melt_mat <- melt(cormat, na.rm = TRUE)
+```
+
+To better view the strength of association patterns, we will customize a correlation heatmap:
+
+```{r}
+
+# The below function is created for creating a customized correlation heatmap
+# It is inspired by Reference No.6
+
+
+heat<-function(melt_mat){
+  
+  # Create heatmap
+  ggheatmap <- ggplot(melt_mat, aes(Var2, Var1, fill = value))+
+    geom_tile(color = "white")+
+    scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+    midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Pearson\nCorrelation") +
+    theme_minimal()+ # minimal theme
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 12, hjust = 1))+
+    coord_fixed()+ 
+    
+    geom_text(aes(Var2, Var1, label = value), color = "black", size = 4) +
+    theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank(),
+    legend.justification = c(1, 0),
+    legend.position = c(0.6, 0.7),
+    legend.direction = "horizontal")+
+    guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                title.position = "top", title.hjust = 0.5))
+
+  return(ggheatmap)
+}
+
+
+```
+
+
+```{r, fig.height=6.5, fig.width=6.5}
+#heat map for all
+heat(melt_mat)
+
+```
+
+According to Evans (1996), correlation value r can be interpreted as below:
+
+*  .00-.19 \ "very weak"
+*  .20-.39 \ "weak"
+*  .40-.59 \ "moderate"
+*  .60-.79 \ "strong"
+*  .80-1.0 \ "very strong"
+
+Now let's look at the moderate or strong correlated pairs only:
+
+```{r, fig.height=6.5, fig.width=6.5}
+
+# heat map for moderate or strong correlation only
+mod_strong <- subset(melt_mat, value >= 0.4|value<=-0.4)
+
+heat(mod_strong)
+
+```
+
+From above heat map, we can see there are 9 pairs show moderate or strong association patterns in our dataset.
+Along the y-axis label, let's summarize the association patterns as below:
+
+1. fixed.acidity correlated to:
+    - citric.acid
+    - density
+    - pH
+2. volatile.acidity correlated to:
+    - citric.acid
+3. citric.acid correlated to:
+    - pH
+4. free.sulfur.dioxide correlated to
+    - total.sulfur.dioxide
+5. density correlated to
+    - alcohol
+    - log_residual.sugar
+6. alcohol correlated to
+    - quality
+
+Now let's create 6 plots to visualize correlated pairs.
+First, let's check the fixed.acidity correlated variables:
+
+```{r}
+# 1. fixed.acidity correlated variables
+
+g1 <- ggplot(dt, aes(x=citric.acid, y=fixed.acidity)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+
+g2 <- ggplot(dt, aes(x=fixed.acidity, y=density)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+
+g3 <- ggplot(dt, aes(x=fixed.acidity, y=pH)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+
+grid.arrange(g1,g2,g3, ncol=3)
+
+```
+
+The way we arrange variable on x-axis is based on possible causal relationship:
+
+* Citric.acid is one of the contributer to fixed.acidity. So it's likely that the increase of citric.acid caused the increase of fixed.acidity, not the other way around.
+* It is more likely that fixied.acidity contributing to denser wine, instead of density affecting fixed.acidity.
+* The causal direction is clear between fixed.acidity and pH: the higher the fixed.acidity, the lower pH value.
+
+Second, let's check volatile.acidity correlated variable citric.acid:
+```{r}
+# 2. volatile.acidity correlated to citric.acid
+
+ggplot(dt, aes(x=citric.acid, y=volatile.acidity)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+```
+
+For this particular pair, there should not be any causal effect since citric.acid is non-volatile organic acids. The observed correlation is possible due to the ratio competiton between volatile.acidity and non-volatile acidity.
+
+The 3rd pair is citric.acid and pH:
+
+```{r}
+# 3. citric.acid correlated to pH
+
+ggplot(dt, aes(x=citric.acid, y=pH)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+```
+
+It is clear that the higher ciric.acid contribute to lower pH value.
+
+The 4th pair is free.sulfur.dioxide vesus total.sulfur.dioxide:
+
+```{r}
+# 4. free.sulfur.dioxide correlated to total.sulfur.dioxide
+
+ggplot(dt, aes(x=free.sulfur.dioxide, y=total.sulfur.dioxide)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+
+```
+
+The correlation between free.sulfur.dioxide and total.sulfur.dioxide is not surprising, since one is the subset of the other one.
+
+Next, let's check the 5th variable density. Other than correlated to fixed.acidity, density is also correlated alcohol and log-transformed residual.sugar:
+
+```{r}
+# density is correlated to fixed.acidity, alcohol and log-transformed residual.sugar
+
+g1 <- ggplot(dt, aes(x=fixed.acidity, y=density)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+g2 <- ggplot(dt, aes(x=alcohol, y=density)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+g3 <- ggplot(dt, aes(x=log_residual.sugar, y=density)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+
+grid.arrange(g1,g2,g3, ncol=3)
+```
+
+In the univariate section, we saw some wine samples denser than water, and one of our hypothesis is that those samples with high sulcose content. From the fixed.acidity correlation analysis, we also found density is positive correlated to fixed.acidity. Now let's find out which one plays a major role in causing denser wine.
+
+Wine samples with density greater than 1 have been defined as *Dense Wine*, and those with density less or equal than 1 have been defined as *Regular Wine*.
+
+```{r}
+# 5. density correlated to fixed.acidity, alcohol, log_residual.sugar
+g1 <- ggplot(dt, aes(x=log_residual.sugar, y=density, 
+                color=ifelse(density>1, "Dense Wine","Regular Wine"))) + 
+  labs(color="Density") +
+  geom_point(alpha=0.4) + 
+  geom_smooth(method=lm, se=FALSE) +
+  theme(legend.position="none")
+
+  
+g2 <- ggplot(dt, aes(x=fixed.acidity, y=density, 
+                color=ifelse(density>1, "Dense Wine","Regular Wine"))) +
+  labs(color="Density") +
+  geom_point(alpha=0.4) + 
+  geom_smooth(method=lm, se=FALSE)+
+  theme(legend.position="none")
+
+# Get common legend
+g<- ggplotGrob(g1 + theme(legend.position="right"))$grobs
+legend <- g[[which(sapply(g, function(x) x$name) == "guide-box")]]
+
+grid.arrange(g1,g2,legend, ncol=3, widths= c(3,3,1.5))
+
+
+```
+
+Observations:
+
+* The relationship between residual.sugar and density is consistent in both Regular Wine and Dense Wine groups, as we can see the slope of esimated fitting lines are almost parallel.
+* Fixed.acidity plays a more siginficant impact on Regular Wine but not on Dense Wine group. The estimated slope for the latter group is much flatter than the formal one.
+
+In short, residual.sugar is more likely to be the cause of denser wine.
+
+Next, let's look at the last pair: alcohol and quality. 
+Among all 11 physicochemical attributes, alcohol is the only attribute show moderate or above correlation with wine quality, which might indicates its significance as a predictor for wine quality.
+
+```{r}
+# 6. Alcohol vs quality
+
+ggplot(dt, aes(x=alcohol, y=quality)) + 
+  geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
+```
+
+From y-axis, we can actually see points are roughly grouped at 3 discrete level: quality score 5, 6, and 7.
+
+Let's add one more comparison by computing the polyserial correlation between *alcohol* vesus target categorical variable *level*:
+
+```{r}
+## Correlation: Categorical Variable
+cor1 <- cor(dta$alcohol,dta$quality)
+cor2 <- polyserial(dta$alcohol,dta$level)
+cor3 <- polyserial(dta$quality, dta$level)
+
+cat('Correlation Alcohol vs Quality ', cor1)
+cat("\n")
+cat('Correlation Alcohol vs Level:', cor2)
+cat("\n")
+cat('Correlation Quality vs Level:', cor3)
+```
+
+Here we see the two correlations are very close, and the polyserial correlation is even a bit higher.
+
+Let's also check all correlation r values for dependent variable quality:
+
+```{r}
+# group1: variables show moderate correlation to 
+cor_quality <- melt_mat %>%
+  subset(Var2 == "quality") %>%
+  subset(Var1 != "quality") %>%
+  arrange(-abs(value))
+
+ggplot(cor_quality,aes(x=Var1, y=value)) + geom_bar(stat = "identity") + 
+  labs(x = 'Variables', y="Correlation r") +
+  coord_flip() 
+  
+```
+
+Let's whether the positive correlation observed to quality persist for target response variable *level*.
+
+Variables positive correlated to *quality*:
+
+*log_residual.sugar
+* alcohol
+* sulphates
+* citric.acid
+* fixed.acidity
+
+
+
+```{r}
+
+dt$quality <- NULL
+
+pos_name <- c("log_residual.sugar","alcohol","sulphates","citric.acid","fixed.acidity")
+pos_dt <- dt[, pos_name]
+pos_dt$level <-dta$level
+
+# Boxplots to level
+pos_box <- function(feature){
+  ggplot(pos_dt, aes_string(x="level",y=feature))+
+    geom_boxplot()
+}
+```
+
+```{r}
+g1 <- pos_box("log_residual.sugar")
+g2 <- pos_box("alcohol")
+g3 <- pos_box("sulphates")
+g4 <- pos_box("citric.acid")
+g5 <- pos_box("fixed.acidity")
+
+grid.arrange(g1,g2,g3,g4,g5, ncol=3)
+```
+
+
+
+
+```{r}
+neg_dt <- dt[, -which(names(dt) %in% pos_name)]
+neg_dt$level <-dta$level
+
+```
+
+
+
+
+
