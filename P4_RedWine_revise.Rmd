@@ -1,7 +1,7 @@
 ---
 title: "Red Wine Quality Prediction"
 author: "Wen Yang"
-date: "February 23, 2017"
+date: "February 20, 2017"
 output: 
   html_document: 
     number_sections: yes
@@ -26,8 +26,7 @@ library(randomForest)
 library(ggthemes)
 library(psych)
 library(polycor)
-library(magrittr)
-# library(plotly)
+library(Hmisc)
 ```
 
 # Introduction
@@ -323,19 +322,15 @@ The distribution shape for total sulfur dioxide is very similar to free sulfur d
 ```{r}
 sulf_var <- data.frame(var(dta$free.sulfur.dioxide),
                        var(dta$total.sulfur.dioxide))
-
 sulf_var
-
 ```
 
 Not surprised, total sulfur dioxide does have larger variance than free sulfur dioxide. For total sulfur dioxide, there is no need for transformation since the scale can still depict the majority trend.
 
 ```{r}
-# 8. density
-
+## 8. density
 univ_hist("density")
 summary(dta$density)
-
 ```
 
 Density looks highly like a normal distribution, with data evenly distributed two sides from median. It is worth noticed that the data range for this variable is very small--from 0.99 to 1. The majority samples with density less than 1 makes sense since the density of ethanol is less than water. One possible cause for wine denser than water could be high sugar level since the density of sucrose is about 1.59 g/cm^3^. We can further compare relationship between density and residual sugar in bivariate section.
@@ -370,7 +365,7 @@ For alcohol, the majority of data within range of 8.8 to 12.5. We can observe th
 
 Observations for univariate exploratory:
 
-* 2 attributes are normallly distributed: density and pH.
+* There are 2 attributes normallly distributed: density and pH.
     - density : there are samples with density greater than 1. In bivariate section, we will further investigate the cause by examing how density is related to residual sugar. 
 * the other 9 attributes are more or less positively skewed:
     - residual.sugar and chlorides are highly skewed to the right, log-scalling is applied to both variables to better view the central tendency.
@@ -378,27 +373,28 @@ Observations for univariate exploratory:
 
 ## Bivariate Plot & Analysis
 
-One comment from the meta data, variables in this dataset might be correlated. This indicates us two things:
+According to source data description, some variables might be correlated. Therefore it is necessary to their correlation, and if strong correlation observed between independent variable pairs, we must carefully select predictors to reduce the multicolinearity issue. 
 
-* If correlation relationship observed between independent variable and dependent variable, the strenth of correlation couldl us to select predictors;
-* However, if strong correlation observed between independent variable pairs, we must carefully remove some variables to reduce the multicolinearity issue.
+Since correlation essentially is estimated by linear regression, which is very sensitive to outliers, we need apply log transformation to residual sugar and chlorides.
 
-Since correlation is a measure for linear relationship, which is sensitive to outliers, we will apply log10 transformation to residual sugar and chlorides to reduce the effect.
+Though we can use ployserial correlation to quantify the relathionship between continous variable and dichotomous variable, *quality* instead of *level* will be used to compute correlation matrix for the below reasons:
 
-Another note is that  *quality* instead of *level* will be used to compute correlation matrix for the below reasons:
-
-* Though we can use ployserial correlation to quantify the relathionship between continous variable and dichotomous variable, this method would mute most of subtle differences since only means were compared for three categories.
-* level is a variable derived from quality, and intunitively we are interested in whether increasing a certain attribute would contribute to increasing or decreasing in wine quality response. Therefore, if correlation relationship is observed between an independent variable and original dependent variable *quality*, we can extend the conclusion to *level* too. 
+* Variable level is derived from variable quality, and intunitively we are interested in whether increasing a certain attribute would contribute to increasing or decreasing in wine quality response. Therefore, if correlation relationship is observed between an independent variable and original dependent variable *quality*, we can extend the conclusion to *level* too. 
 * For simpliticity and consistency, correlation matrix for all numerical type is relative easy to read and to interpret.
 
+Therefore, we will first re-organize the dataset, and then check the correlation. 
+To better view the strength of association patterns, we will customize a correlation heatmap:
+
 ```{r}
-# Create dataset not including "level"
+# Get 11 independent variables
 dt <- dta[,1:11]
+# Apply data transformation
 dt$log_residual.sugar <- log10(dt$residual.sugar)
 dt$log_chlorides <- log10(dt$chlorides)
 dt$residual.sugar <- NULL
 dt$chlorides <- NULL
 
+# Get orginal dependent variable
 dt$quality <- dta$quality
 
 # calculate correlation
@@ -409,9 +405,8 @@ cormat[lower.tri(cormat)] <- NA
 
 # Convert correlation mattrix to long-format 
 melt_mat <- melt(cormat, na.rm = TRUE)
-```
 
-To better view the strength of association patterns, we will customize a correlation heatmap:
+```
 
 ```{r}
 
@@ -420,18 +415,18 @@ To better view the strength of association patterns, we will customize a correla
 
 
 heat<-function(melt_mat){
-  
+
   # Create heatmap
   ggheatmap <- ggplot(melt_mat, aes(Var2, Var1, fill = value))+
     geom_tile(color = "white")+
-    scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+    scale_fill_gradient2(low = "royalblue", high = "pink", mid = "white", 
     midpoint = 0, limit = c(-1,1), space = "Lab", 
     name="Pearson\nCorrelation") +
     theme_minimal()+ # minimal theme
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, 
-    size = 12, hjust = 1))+
+    theme(axis.text.x = element_text(angle = 60, vjust =1.1 , 
+    size = 10, hjust = 1))+
     coord_fixed()+ 
-    
+
     geom_text(aes(Var2, Var1, label = value), color = "black", size = 4) +
     theme(
     axis.title.x = element_blank(),
@@ -449,12 +444,11 @@ heat<-function(melt_mat){
   return(ggheatmap)
 }
 
-
 ```
 
-
 ```{r, fig.height=6.5, fig.width=6.5}
-#heat map for all
+# Heat map 
+
 heat(melt_mat)
 
 ```
@@ -470,35 +464,33 @@ According to Evans (1996), correlation value r can be interpreted as below:
 Now let's look at the moderate or strong correlated pairs only:
 
 ```{r, fig.height=6.5, fig.width=6.5}
-
 # heat map for moderate or strong correlation only
 mod_strong <- subset(melt_mat, value >= 0.4|value<=-0.4)
 
 heat(mod_strong)
-
 ```
 
-From above heat map, we can see there are 9 pairs show moderate or strong association patterns in our dataset.
-Along the y-axis label, let's summarize the association patterns as below:
+From above heat map, we can see there are 9 pairs show moderate or strong association patterns in our dataset. Along the y-axis label, let's summarize the association patterns as below:
 
-1. fixed.acidity correlated to:
+1. fixed.acidity is correlated to 
     - citric.acid
     - density
     - pH
-2. volatile.acidity correlated to:
+2. volatile.acidity is correlated to
     - citric.acid
-3. citric.acid correlated to:
+3. citric.acid is correlated to 
     - pH
-4. free.sulfur.dioxide correlated to
+4. free.sulfur.dioxide is correlated to 
     - total.sulfur.dioxide
-5. density correlated to
+5. density is correlated to
     - alcohol
     - log_residual.sugar
-6. alcohol correlated to
+6. alcohol is correlated to
     - quality
 
-Now let's create 6 plots to visualize correlated pairs.
-First, let's check the fixed.acidity correlated variables:
+Now let's visualize these correlated pairs. 
+
+The first group is fixed.acidity correlated variables:
 
 ```{r}
 # 1. fixed.acidity correlated variables
@@ -513,16 +505,16 @@ g3 <- ggplot(dt, aes(x=fixed.acidity, y=pH)) +
   geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
 
 grid.arrange(g1,g2,g3, ncol=3)
-
 ```
 
-The way we arrange variable on x-axis is based on possible causal relationship:
+Among these three pairs, we can infer their possible causal relationship:
 
 * Citric.acid is one of the contributer to fixed.acidity. So it's likely that the increase of citric.acid caused the increase of fixed.acidity, not the other way around.
 * It is more likely that fixied.acidity contributing to denser wine, instead of density affecting fixed.acidity.
 * The causal direction is clear between fixed.acidity and pH: the higher the fixed.acidity, the lower pH value.
 
-Second, let's check volatile.acidity correlated variable citric.acid:
+Second, let's check volatile.acidity correlation:
+
 ```{r}
 # 2. volatile.acidity correlated to citric.acid
 
@@ -550,7 +542,6 @@ The 4th pair is free.sulfur.dioxide vesus total.sulfur.dioxide:
 
 ggplot(dt, aes(x=free.sulfur.dioxide, y=total.sulfur.dioxide)) + 
   geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
-
 ```
 
 The correlation between free.sulfur.dioxide and total.sulfur.dioxide is not surprising, since one is the subset of the other one.
@@ -558,7 +549,7 @@ The correlation between free.sulfur.dioxide and total.sulfur.dioxide is not surp
 Next, let's check the 5th variable density. Other than correlated to fixed.acidity, density is also correlated alcohol and log-transformed residual.sugar:
 
 ```{r}
-# density is correlated to fixed.acidity, alcohol and log-transformed residual.sugar
+# density is correlated to fixed.acidity, alcohol and log_residual.sugar
 
 g1 <- ggplot(dt, aes(x=fixed.acidity, y=density)) + 
   geom_jitter(alpha=0.1) + geom_smooth(method="lm", se=FALSE)
@@ -572,18 +563,19 @@ grid.arrange(g1,g2,g3, ncol=3)
 
 In the univariate section, we saw some wine samples denser than water, and one of our hypothesis is that those samples with high sulcose content. From the fixed.acidity correlation analysis, we also found density is positive correlated to fixed.acidity. Now let's find out which one plays a major role in causing denser wine.
 
-Wine samples with density greater than 1 have been defined as *Dense Wine*, and those with density less or equal than 1 have been defined as *Regular Wine*.
+Wine samples with density greater than 1 have been defined as Dense Wine, and those with density less or equal than 1 have been defined as Regular Wine.
 
 ```{r}
 # 5. density correlated to fixed.acidity, alcohol, log_residual.sugar
 g1 <- ggplot(dt, aes(x=log_residual.sugar, y=density, 
                 color=ifelse(density>1, "Dense Wine","Regular Wine"))) + 
+  
   labs(color="Density") +
   geom_point(alpha=0.4) + 
   geom_smooth(method=lm, se=FALSE) +
   theme(legend.position="none")
 
-  
+
 g2 <- ggplot(dt, aes(x=fixed.acidity, y=density, 
                 color=ifelse(density>1, "Dense Wine","Regular Wine"))) +
   labs(color="Density") +
@@ -597,13 +589,12 @@ legend <- g[[which(sapply(g, function(x) x$name) == "guide-box")]]
 
 grid.arrange(g1,g2,legend, ncol=3, widths= c(3,3,1.5))
 
-
 ```
 
 Observations:
 
 * The relationship between residual.sugar and density is consistent in both Regular Wine and Dense Wine groups, as we can see the slope of esimated fitting lines are almost parallel.
-* Fixed.acidity plays a more siginficant impact on Regular Wine but not on Dense Wine group. The estimated slope for the latter group is much flatter than the formal one.
+* Fixed.acidity does show very strong positive correlation to regular wine, but the trend flattend in dense wine group, which indicates this variable is not the main driver causing dense wine. 
 
 In short, residual.sugar is more likely to be the cause of denser wine.
 
@@ -619,7 +610,7 @@ ggplot(dt, aes(x=alcohol, y=quality)) +
 
 From y-axis, we can actually see points are roughly grouped at 3 discrete level: quality score 5, 6, and 7.
 
-Let's add one more comparison by computing the polyserial correlation between *alcohol* vesus target categorical variable *level*:
+Let's add one more comparison by computing the polyserial correlation between alcohol vesus target categorical variable level:
 
 ```{r}
 ## Correlation: Categorical Variable
@@ -636,328 +627,332 @@ cat('Correlation Quality vs Level:', cor3)
 
 Here we see the two correlations are very close, and the polyserial correlation is even a bit higher.
 
-We used quality to check correlation for simplicity reason., since our ultimate goal is to predict variable *level*, let's check how 11 physicochemical attributes interacting with our target response variable *level* by boxplots.
-
-
+Let's also check all correlation r values for dependent variable quality:
 
 ```{r}
+# get correlation for quality variable
 
-#
 cor_quality <- melt_mat %>%
-  subset(Var2=="quality") %>%
-  subset(Var1!="quality") %>%
+  subset(Var2 == "quality") %>%
+  subset(Var1 != "quality") %>%
   arrange(-abs(value))
 
-cor_quality
+ggplot(cor_quality,aes(x=Var1, y=value)) + geom_bar(stat = "identity") + 
+  labs(x = 'Variables', y="Correlation r") +
+  coord_flip() 
 ```
 
+From the above graph, we saw that variables positively correlated to quality including:
 
+* log_reisidual.sugar
+* alcohol
+* sulphates
+* citric.acid
+* fixed.acidity
 
-
-
-
- 
-
-
-
-
-
-
-
-
-So let's 
-
-
-
-
-
-
-
-Observations: 
-* positive correlated to level: fixed.acidity and citric.acid
-* negative correlated to level: volatile.acidity
-
-Boxplot for sulfur dioxide group:
-
-```{r, message=FALSE, warning=FALSE}
-# print the 4th and 5th boxplots on plot_list
-do.call(grid.arrange, c(plot_list[4:5], ncol=2))
-```
-
-It seems that there's no clear trend between sulfur dioxide group with wine quality level.
+Let's check whether the positive correlation observed to quality persist for target response variable level.
 
 ```{r}
-# print the 6th to  9th boxplots on plot_list
-do.call(grid.arrange, c(plot_list[6:9], ncol=2))
+dt$quality <- NULL
+dt$level <- dta$level
 
-```
-
-Observations: 
-* positive correlated to level: sulphates and alcohol
-* negative correlated to level: pH
-* unclear trend: density
-
-Next, let's look at the log-transformed data group: residual sugar and chlorides.
-
-```{r}
-# print the 10th and 11th boxplots on plot_list
-do.call(grid.arrange, c(plot_list[10:11], ncol=2))
-
-```
-
-Observations: 
-* positive correlated to level: log-transformed residual.sugar
-* negative correlated to level: log-transformed chlorides
-
-Now let's regroup independent variables in three categories based on their relationship with dependent variable level:
-
-* Increasing trend group: 
-   - fixed.acidity
-   - citric.acid
-   - sulphates
-   - alcohol
-   - log_residual.sugar
-* Decreasing trend group: indicating negative correlation between physicochemcial attrbute and wine quality level. 
-   - volatile.acidity
-   - pH
-   - log_chlorides
-* Unclear trend group: no specific correlation pattern observed between physicochemcial attrbute and wine quality level. 
-   _ free.sulfur.dioxide
-   - total.sulfur.dioxide
-   - density
-   
+pos_name <- c("log_residual.sugar","alcohol","sulphates",
+              "citric.acid","fixed.acidity","level")
+pos_dt <- dt[, pos_name]
 
 
-
-```{r}
-Incre_group <- subset(trans, select = c(fixed.acidity, citric.acid, sulphates, alcohol, log_residual.sugar, level))
-Decre_group <- subset(trans, select = c(volatile.acidity, pH, log_chlorides, level))
-Unclear_group <- subset(trans, select = c(free.sulfur.dioxide, total.sulfur.dioxide, density, level))
-
-
-
+# Boxplots to level
+pos_box <- function(feature){
+  ggplot(pos_dt, aes_string(x="level",y=feature))+
+    geom_boxplot()
+}
 ```
 
 ```{r}
-# Create a empty list to hold plots
+g1 <- pos_box("log_residual.sugar")
+g2 <- pos_box("alcohol")
+g3 <- pos_box("sulphates")
+g4 <- pos_box("citric.acid")
+g5 <- pos_box("fixed.acidity")
 
-Incre_list <- list()
-nplot = 5
+grid.arrange(g1,g2,g3,g4,g5, ncol=3)
+```
 
-ind_names <- names(Incre_group)[1:5]
+The positive trend holds true for variable *level*.
 
-for (i in seq(nplot)){
-  new_plot <- ggplot(Incre_group,aes_string(y=ind_names[i])) +
-    geom_boxplot(aes(x=level, fill=level)) +
-    scale_fill_brewer(palette = "RdPu", guide=FALSE) +
-    xlab("")
-  
-  Incre_list <- c(Incre_list,list(new_plot))
+Now let's check those variables with negative correlation to wine quality:
+
+```{r}
+neg_dt <- dt[, -which(names(dt) %in% pos_name)]
+neg_dt$level <-dt$level
+
+# Boxplots to level
+neg_box <- function(feature){
+  ggplot(neg_dt, aes_string(x="level",y=feature))+
+    geom_boxplot()
 }
 
 
-# Print plots
-do.call(grid.arrange, c(Incre_list, list(ncol=3,
-        main=textGrob("Positive Correlated to Wine Quality Level", 
-                      gp=gpar(fontsize=12,font=8), just="top"))))
+cat("\n")
+cat('Negative Correlation Variables:', names(neg_dt))
+```
+
+```{r}
+g1 <- neg_box("volatile.acidity")
+g2 <- neg_box("free.sulfur.dioxide")
+g3 <- neg_box("total.sulfur.dioxide")
+g4 <- neg_box("density")
+g5 <- neg_box("pH")
+g6 <- neg_box("log_chlorides")
+
+grid.arrange(g1,g2,g3,g4,g5,g6, ncol=3)
+```
+
+In this group, we can see only volatile.acidity, pH and log_chlorides show negative correlation to level.
+The other three variables seem no particular trend with respect to target response variable.
+
+Now we can re-organzie the positive, negative and unclear trend groups respectively:
+
+```{r, fig.height=5, fig.width=7}
+# Positive Correlated to level
+
+pos_box <- function(feature){
+  ggplot(pos_dt, aes_string(x="level",y=feature))+
+    geom_boxplot(aes(fill=level))+ xlab("") +
+    scale_fill_brewer(palette = "RdPu", guide=FALSE)
+}
+
+g1 <- pos_box("log_residual.sugar")
+g2 <- pos_box("alcohol")
+g3 <- pos_box("sulphates")
+g4 <- pos_box("citric.acid")
+g5 <- pos_box("fixed.acidity")
+
+grid.arrange(g1,g2,g3,g4,g5, ncol=3,
+             main=textGrob("Positive Correlated to Wine Quality Level", 
+                      gp=gpar(fontsize=12,font=8), just="top"))
 
 ```
 
-The above 5 physicochemcial attrbutes shown positive correlation to wine quality level can be considered as candidate predictors.
+The above 5 physicochemcial attrbutes shown positive correlation to wine quality level can be considered as candidate predictors. But citric.acid and fixed.acidity are strong correlated, so we need to further investigate how are they influencing wine quality level in multivariate section.
 
 ```{r}
-# Create a empty list to hold plots
+# Negative Correlated to level
 
-Decre_list <- list()
-nplot = 3
-
-ind_names <- names(Decre_group)[1:3]
-
-for (i in seq(nplot)){
-  new_plot <- ggplot(Decre_group,aes_string(y=ind_names[i])) +
-    geom_boxplot(aes(x=level, fill=level)) +
-    scale_fill_brewer(guide=FALSE) +
-    xlab("")
-  
-  Decre_list <- c(Decre_list,list(new_plot))
+neg_box <- function(feature){
+  ggplot(neg_dt, aes_string(x="level",y=feature))+
+    geom_boxplot(aes(fill=level)) + xlab("") +
+    scale_fill_brewer(guide=FALSE)
 }
 
+g1 <- neg_box("volatile.acidity")
+g2 <- neg_box("pH")
+g3 <- neg_box("log_chlorides")
 
-# Print plots
-do.call(grid.arrange, c(Decre_list, list(ncol=3,
-        main=textGrob("Negative Correlated to Wine Quality Level", 
-                      gp=gpar(fontsize=12,font=8), just="top"))))
+grid.arrange (g1,g2,g3, ncol=3, 
+              main=textGrob("Negative Correlated to Wine Quality Level", 
+                      gp=gpar(fontsize=12,font=8), just="top"))
+
+
 ```
 
-The above 3 physicochemcial attrbutes shown negative correlation to wine quality level can also be considered as candidate predictors.
+Although the lower pH seems contributing higher quality wine, we should not include pH as a predictor, since we know the pH value is an overall measure of acidity, which has neen already represented by fixed.acidity and citric.acid. So in this negative correlated group, only volatile.acidity and log_chloridesto will be considred as condidate predicotors. 
 
 ```{r}
-# Create a empty list to hold plots
+# Unclear trend group
 
-Unclear_list <- list()
-nplot = 3
-
-ind_names <- names(Unclear_group)[1:3]
-
-for (i in seq(nplot)){
-  new_plot <- ggplot(Unclear_group,aes_string(y=ind_names[i])) +
-    geom_boxplot(aes(x=level, fill=level)) +
-    scale_fill_brewer(palette = "Purples", guide=FALSE) +
-    xlab("")
-  
-  Unclear_list <- c(Unclear_list,list(new_plot))
+other <- function(feature){
+    ggplot(neg_dt,aes_string(x ="level", y = feature)) +
+    geom_boxplot(aes(fill=level)) + xlab("") +
+    scale_fill_brewer(palette = "Purples",guide=FALSE)
 }
 
+g1 <- other("free.sulfur.dioxide")
+g2 <- other("total.sulfur.dioxide")
+g3 <- other("density")
 
-# Print plots
-do.call(grid.arrange, c(Unclear_list, list(ncol=3,
-        main=textGrob("Unclear Trend Group", 
-                      gp=gpar(fontsize=12,font=8), just="top"))))
+grid.arrange (g1,g2,g3, ncol=3, 
+              main=textGrob("Unclear Trend Group", 
+                      gp=gpar(fontsize=12,font=8), just="top"))
 ```
 
 The above 3 physicochemcial attrbutes will not be included for further analysis since there's no clear correlation to wine quality level.
 
-So far, we shrinked down predictor variables from 11 attributes to 8. 
+So far, we shrinked down predict candidates from 11 to 7:
+
+1. log_residual.sugar
+2. alcohol
+3. sulphates
+4. citric.acid
+5. fixed.acidity
+6. volatile.acidity
+7. log_chlorides
+
+Out of these 7 variables, we still need to figure out the multicolinearity among citric.acid, fixed.acidity and voaltile.acidity. So in the next multivariate analysis section, we will isolate them in pairs and see how are they influencing our target response variable wine quality level.
 
 ## Multi-variate Plot & Analysis
 
+Now we have seven candidate predictors, and three of them seem to have multicolinearity.
+Therefore the purpose of this section is to figure out how one variable is influenced by another, and most importantly how wine quality level is influenced by their association.
+
+Let's start with our first pair of correlated candidates: fixed.acidity ~ citric.acid.
+
+```{r}
+# fixed.acidity ~ citric.acid by level
+ggplot(dt, aes(x=fixed.acidity, y=citric.acid, colour=level)) +
+  geom_point(alpha=0.3, position = position_jitter()) +
+  stat_smooth(method="lm", se=FALSE)
+```
+
+As we can see, at same fixed.acidity level, the higher the citri.acid components, the higher the wine quality level.
+
+Now we acknowledged that citric.acid does play an important role elevating wine quality level, but how does it compared to alcohol, which is the only variable observed moderate positive correlation to wine quality. 
+
+```{r}
+# alcoho ~ citric.acid by level
+ggplot(dt, aes(x=alcohol,y=citric.acid,colour=level)) +
+  geom_point(alpha=0.3, position = position_jitter()) +
+  #geom_boxplot(alpha=0.1)
+  stat_smooth(method="lm", se=FALSE)
+```
+
+The trend is not very clear, probably because the medium alcohol in low level wine and medium level wine is too close, and also the large variance observed in medium level wine samples.
+
+So instead of plotting citric.acid against each alcohol value, let's review this pair by dividing alcohol into the below 4 categories:
+
+* Below 30 percentile: Low Alcohol
+* 30 to 60 percentile: Medium Alcohol
+* 60 to 90 percentile: High Alcohol
+* Above to 90 percentile: Very High Alcohol
+
+
+```{r}
+# Divide alcohol to 4 categories
+dt$alcohol_cut <- cut2(dt$alcohol, quantile(dt$alcohol, c(0,0.3,0.6,0.9,1)))
+levels(dt$alcohol_cut) <- c("Low alcohol","Medium alcohol","High alcohol","Very High alcohol")
+
+ggplot(dt,aes(x=alcohol_cut, y=citric.acid,color=level))+
+         geom_point(alpha=0.3, position="jitter")+
+         geom_boxplot(alpha=0.4) +
+         xlab("")
+
+```
+
+Now it is very clear that at each given range of alcohol, wine with higher citric.acid is tend to be evaluated as higher quality.
+
+I wonder if at each given range of citric.acid, would higher alcohol be equaly likely influencing quality level. 
+Let's divide citric.acid to 4 categories:
+
+* Below 30 percentile: Low Citric
+* 30 to 60 percentile: Medium Citric
+* 60 to 90 percentile: High Citric
+* Above to 90 percentile: Very High Citric
+
+```{r}
+# Divide citric.acid to 4 categories
+dt$cit_cut <- cut2(dt$citric.acid, quantile(dt$citric.acid, c(0,0.3,0.6,0.9,1)))
+levels(dt$cit_cut) <- c("Low Citric","Medium Citric","High Citric","Very High Citric")
+
+ggplot(dt,aes(x=cit_cut, y=alcohol,color=level))+
+         geom_point(alpha=0.3, position="jitter")+
+         geom_boxplot(alpha=0.4) +
+         xlab("")
+```
+
+Here we see two patterns:
+
+* In High and Very High Citric groups, wine samples with higher alcohol content are also tend to be evaluated as high quality wine.
+* While in Low and Medium Citric groups, high quality wine does have high alcohol content, but for medium or low quality wine, alcohol content doesn't seem to be a decisive factor.
+
+Next, let's move to the second correlated candidates: citric.acid versus volatile.acidity.
+Although the correlation was found between volatile.acidity and citric.acid, we know citric.acid itself is a kind of non-voaltile acidity, so the observed correlation is likely due to the composition competition between fixed.acidity and volatile.acidity.
+
+Therefore, let's check the how wine quality level responds to the composition competition between volatile.acidity and fixed.acidity.
+
+```{r}
+# volatile.acidity ~ fixed.acidity by level
+ggplot(dt, aes(x=fixed.acidity, y=volatile.acidity, colour=level)) +
+  geom_point(alpha=0.3, position = position_jitter()) +
+  stat_smooth(method="lm", se=FALSE)
+```
 
 Observations:
 
-```{r}
-ggplot(dta, aes(y=citric.acid, x=fixed.acidity, colour=level)) +
-  geom_point(alpha=0.3, position = position_jitter()) +
-  stat_smooth(method="lm", se=FALSE)
-```
+* The regression lines for for Medium and High level wine are almost parallel, which indicates that in wine making process, the ratio control for volatile.acidity and fixed.acidity is relatively similar and fairly constant.
+* The regression line Low level wine with a slope steeper than the other two lines probably indicates that the issue causing low level wine is because of the inbalance ratio between volatile.acidity and fixed.acidity, or more preciesely, too much volatile.acidity and not sufficient fixed.acidity to create good sensory experience.
+* In terms of predictor selection, volatile.acidity should be kept not only because at given level of fixed.acidity, volatile.acidity show consistent influence for different levels of wine samples, but also because volatile providies another dimension of acidity which will provide complementary information for prediction model.
 
-* at given fixed.acidity level, the higher citric.acid, the higher wine quality level. citirc.acid is indeed a import facotrs contributing to wine quality
-* 
+Up till now, we are able to identify 6 predictors, in which no significant colinearity observed, and each represents different dimension of wine characteristics. 
 
-Let's move to another strongly positive correlated group fixed.acidity and density:
+In next section, we are going to build a prediction model based on these 6 predictors:
 
-```{r}
-ggplot(dta, aes(y=density, x=fixed.acidity, colour=level)) +
-  geom_point(alpha=0.3, position = position_jitter()) +
-  stat_smooth(method="lm", se=FALSE)
-```
-
-Observations:
-
-* Given same density, the higher the fixed.acidity, the higher wine quality
-
-Check the Strong correlated group in terms of level:
-
-```{r}
-# fixed.acidity and citric.acid has positive strong correlation
-
-ggplot(dta, aes(x=citric.acid,y=alcohol,  colour=level)) +
-  geom_point(alpha=0.3, position = position_jitter()) +
-  stat_smooth(method="lm", se=FALSE)
-```
-
-
-fixeed.acidty and pH
-
-
-
-
-
-
-
-
-
-
-
-```{r}
-ggplot(dta, aes(y=citric.acid, x=log10(residual.sugar), colour=level)) +
-  geom_point(alpha=0.3, position = position_jitter()) +
-  stat_smooth(method="lm", se=FALSE)
-```
-
-
-
-```{r}
-ggplot(dta, aes(x=citric.acid, y= pH, colour=level)) +
-  facet_wrap(~ level) +
-  geom_point(alpha=0.3, position="jitter") +
-  geom_boxplot(alpha=0, colour="black")
-```
-
-```{r}
-ggplot(dta, aes(x=fixed.acidity, y= pH, colour=level)) +
-  facet_wrap(~ level) +
-  geom_point(alpha=0.3, position="jitter") +
-  geom_boxplot(alpha=0, colour="black")
-```
-
-
-
-```{r}
-ggplot(dta, aes(x=fixed.acidity, y=density)) +
-  geom_smooth(aes(colour=level, fill=level)) + facet_wrap(~level)
-```
-
-```{r}
-ggplot(dta, aes(x=alcohol, y=density)) +
-  geom_smooth(aes(colour=level, fill=level)) + facet_wrap(~level)
-```
-
-
-```{r}
-ggplot(dta, aes(alcohol, fill=level, colour=level))+
-  geom_density(alpha=0.1)
-```
-
-
-
-
-
-
-
-The next step is to build a prediction model by fitting the above 7 predictors.
+1. log_residual.sugar
+2. alcohol
+3. sulphates
+4. citric.acid
+5. volatile.acidity
+6. log_chlorides
 
 # Prediction Model
 
-Since our dependent variable is categorical data, we need to select muli-class logistic regression model.
+Since our target response variable *level* is categorical data, we need to select muli-class logistic regression model.
 
-The dataset for prediction model should include 7 predictors and 1 target variable.
+The dataset for prediction model should include 6 predictors and 1 target variable.
 
 ## Data Partition: Training & Test 
 
 We first need to split dataset into training and test subsets. Training data for prediction model training, and test data for model performance evaluation. Random sampling will applied within dependent variable wine quality level for total 1599 samples, which will result in 70% training and 30% test data.
 
 ```{r}
+candi_list <- c("log_residual.sugar","alcohol","sulphates","citric.acid",
+                "volatile.acidity","log_chlorides","level")
+candi <- dt[,candi_list]
 
-candi$level <- dta$level
-
+# Create training and test dataset
 intrain<-createDataPartition(y=candi$level,p=0.7,list=FALSE, times=1)
 candi_train<-candi[intrain,]
 candi_test<-candi[-intrain,]
 
-p1<-ggplot(candi, aes(level, fill=level)) + geom_bar() + labs(title="Original Dateset")+ coord_cartesian(ylim=c(0,1599)) + theme(axis.title.x=element_blank(), axis.text.x=element_blank(),axis.ticks.x=element_blank())
+```
 
-p2<-ggplot(candi_train, aes(level, fill=level)) + geom_bar() + labs(title="70% as Training") + coord_cartesian(ylim=c(0,1599)) + theme(axis.title.x=element_blank(), axis.text.x=element_blank(),axis.ticks.x=element_blank())
+```{r}
+bar <- function (dataframe){
+  ggplot(dataframe, aes(level, fill=level)) + geom_bar() + 
+  coord_cartesian(ylim=c(0,1599)) + 
+  theme(legend.position="none",
+        axis.title.x=element_blank(), 
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+}
+```
 
-p3<-ggplot(candi_test, aes(level, fill=level)) + geom_bar()  + labs(title="30% as Test") + coord_cartesian(ylim=c(0,1599)) + theme(axis.title.x=element_blank(), axis.text.x=element_blank(),axis.ticks.x=element_blank())
+```{r, fig.height=5.5, fig.width=6}
 
-source('~/Documents/Udacity/P4/grid_arrange_shared_legend.r')
+g1 <- bar(candi_train) + labs(title="70% as Training")
+g2 <- bar(candi_test) + labs(title="30% as Test")
+g3 <- bar(dt) + labs(title="Original Dateset")
 
-grid_arrange_shared_legend(p1,p2,p3, ncol=3)
+# Get common legend
+g<- ggplotGrob(g1 + theme(legend.position="bottom"))$grobs
+legend <- g[[which(sapply(g, function(x) x$name) == "guide-box")]]
+
+grid.arrange(g1,g2,g3,legend,ncol=2)
+
 ```
 
 ## Random Forest Prediction Model
 
 For this study, Random Forest algorithm is selected due to its advantage on both accuracy and efficiency.
 
-Build prediction model using randomForest on the training set.
+The first step is to train our model by feeding the training set.
 
 ```{r}
 wine_rf <- randomForest(level ~ citric.acid + log_chlorides + sulphates +
-                             volatile.acidity + pH + log_residual.sugar + alcohol,
+                             volatile.acidity + log_residual.sugar + alcohol,
                            data=candi_train)
 wine_rf
 ```
-The overall error rate estimated on training dataset is below 14%.
+The overall error rate estimated on training dataset is about 14%.
 
 ## Model Performance
 
@@ -974,13 +969,13 @@ accuracy <- (sum(correct$Freq))/nrow(candi_test)
 cat("\n")
 cat('Accuracy of Prediction Model is:', accuracy)
 ```
-The prediction model achieved 87% accuracy rate.
+The prediction model achieved 88% accuracy rate.
 
 In the univariate plot section, we proposed that volatile.acidity, alcohol and citric.acid would be potential predictors based on observed two or three peaks on historgram.
 
 In the bivariate plot section, boxplots also revealed that citric.acid, sulphates, log_residual.sugar and alcohol all show positive correlation with wine quality level.
 
-Now let's visualize the rank of all 7 attributes based on the variable importance.
+Now let's visualize the rank of all 6 attributes based on the variable importance.
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 # Get importance
@@ -1000,15 +995,15 @@ ggplot(rankImportance, aes(x = reorder(Variables, Importance),
   
 ```
 
-Our previous assumptions on alcohol, volatile.acidity, citric.acid are ranked as No.1, No.2, No.5 respectively.
+Our previous assumptions on alcohol, volatile.acidity, citric.acid are ranked as No.1, No.2, No.4 respectively.
 The most important variable alcohol is positively correlated to wine quality level, and the second important variable volatile.acidity is negatively correlated to wine quality level.
 
 
 # Summary
 
-By apply random forest algorithm, we achieved 87% accuracy on predicting red wine quality level by 7 physicochemico attributes.
+By apply random forest algorithm, we achieved 88% accuracy on predicting red wine quality level by 6 physicochemical attributes.
 
-The process that helped us to narrow down the 7 predictors from 11 variable is mainly by EDA phase. The below section includes three final plots developed during EDA phase. 
+The process that helped us to narrow down the 6 predictors from 11 variable is mainly by EDA phase. The below section includes three final plots developed during EDA phase. 
 
 ## Final Plots
 
@@ -1016,62 +1011,73 @@ Final Plot 1: The reason to keep this plot is because we can see 3 peaks from hi
 
 ```{r}
 # get column index for volatile.acidity
-var_col <- grep("volatile.acidity", colnames(dta))
-
-# calculate the intercept lines for square transformated data
-g1_intercept <- col_line(var_col)
-
-ggplot(dta,aes(volatile.acidity)) +
-    geom_histogram(aes(y=..density..), colour="black", fill="white") +
-    geom_density(alpha=.2, fill="#FF6666") +
-    geom_vline(xintercept=g1_intercept, linetype="longdash",colour="red")
-
-
+univ_hist("volatile.acidity") + 
+  labs(x = expression("Volatile acidity"*", "*"g/"*"dm"^{3}))
 
 ```
 
-Final Plot 2: this plot is selected because it reveals the positive correlation between residual sugar and density. 
-This plot also compared Regular Wine group vesus Dense Wine group, and the trend holds valid for both, though a overlaped range is observed. For future study topics, t-test can be selected to see whether the difference is statistically significant.
+Final Plot 2: this plot is selected because it reveals that residual.sugar is probably the cause of dense wine. In regular wine group, fixed.acidity show very strong positive correlation to density, but the change of regression slope suggested that fixed.acidity is not the main driver causing wine denser than water. For future study topics, t-test can be selected to see whether the difference is statistically significant.
 
 ```{r}
-ggplot(dta, aes(x=residual.sugar, y=density, 
-                color=ifelse(density>1, "Dense Wine","Regular Wine"))) + 
-  labs(color="Density") +
+# transform back to original data to match variable unit
+dt$residual.sugar <- dta$residual.sugar
+
+g1 <- ggplot(dt, aes(x=residual.sugar, y=density, 
+                color=ifelse(density>1, "Dense Wine","Regular Wine"))) +
   geom_point(alpha=0.4) + 
   geom_smooth(method=lm, se=FALSE) +
+  labs(x = expression("residual sugar"*", "*"g/"*"dm"^{3}),
+       y = expression("wine density"*" , "*"g/"*"cm"^{3})) +
+  theme(legend.position="none") +
   scale_x_log10(
    breaks = scales::trans_breaks("log10", function(x) 10^x),
    labels = scales::trans_format("log10", scales::math_format(10^.x))
     ) +
   annotation_logticks(sides="b")
-  
+
+g2 <- ggplot(dt, aes(x=fixed.acidity, y=density, 
+                color=ifelse(density>1, "Dense Wine","Regular Wine"))) +
+  labs(x = expression("fixed.acidity"*", "*"g/"*"dm"^{3}),
+       y=" ") +
+  geom_point(alpha=0.4) + 
+  geom_smooth(method=lm, se=FALSE)+
+  theme(legend.position="none")
+
+legend.title=element_blank()
+
+# Get common legend
+g<- ggplotGrob(g1 + theme(legend.position="right",
+                          legend.title=element_blank()))$grobs
+legend <- g[[which(sapply(g, function(x) x$name) == "guide-box")]]
+
+grid.arrange(g1,g2,legend, ncol=3, widths= c(3,3,1.3))
 
 ```
 
-Final Plot 3: this plot is selected because the below five attributes show clear positive correlation to wine quality level. Alcohol and sulphate are ranked as No.1 and No.3 in terms of their importance for prediction model.
+
+
+Final Plot 3: this plot is selected because it revealed how wine quality is impacted by the confluence of alcohol and citric.acid. 
+
+At first attempt, we plotted citric.acid against each alcohol value, but we found no clear trend because the medium alcohol in low level wine and medium level wine is too close, and also the large variance observed in medium level wine samples.
+
+Then after we dividing alcohol into the below 4 categories:
+
+* Below 30 percentile: Low Alcohol
+* 30 to 60 percentile: Medium Alcohol
+* 60 to 90 percentile: High Alcohol
+* Above to 90 percentile: Very High Alcohol
+
+It is very clear that at each given range of alcohol, wine with higher citric.acid is tend to be evaluated as higher quality.
 
 ```{r}
-# Create a empty list to hold plots
-
-Incre_list <- list()
-nplot = 5
-
-ind_names <- names(Incre_group)[1:5]
-
-for (i in seq(nplot)){
-  new_plot <- ggplot(Incre_group,aes_string(y=ind_names[i])) +
-    geom_boxplot(aes(x=level, fill=level)) +
-    scale_fill_brewer(palette = "RdPu", guide=FALSE) +
-    xlab("")
-  
-  Incre_list <- c(Incre_list,list(new_plot))
-}
+# Alcohol ~ Citric.acid ~ Wine Quality Level
+ggplot(dt,aes(x=alcohol_cut, y=citric.acid,color=level))+
+         geom_point(alpha=0.3, position="jitter")+
+         geom_boxplot(alpha=0.4) +
+         labs(x=" ",
+              y = expression("citric.acid"*", "*"g/"*"dm"^{3}))
 
 
-# Print plots
-do.call(grid.arrange, c(Incre_list, list(ncol=3,
-        main=textGrob("Positive Correlated to Wine Quality Level", 
-                      gp=gpar(fontsize=12,font=8), just="top"))))
 ```
 
 ## Reflection
@@ -1081,8 +1087,9 @@ In this study, we applied random forest algorithm to predict wine quality level.
 * EDA phase: it is a highly iterative process and this is also the part I spent most time with. One lesson's learned is that in EDA phase, it is very tempting to going on and on, but it is also very important to know when to stop because real projects will have time and monetary budget. Fortunately at last this EDA phase reached a relative satisfactory status.
 
 * Prediction Model Development: there are a few limitations in this phase.
-   - fixed.acidity is eliminated as a predictor because of its colinearity. To complete the model perforamce and feature selection, we should also train a model by including fixed.acidity but removing the other two attributes associated with fixed.acidity. This way we can have a relative comprehensive model representation for potential candidates.
-   - Idealy, we should divide dateset into training, validation and test subsets. By doing so, we can train a couple of prediction models by fitting training data, and then compare error rate in validation dataset, at last apply the model with best performance in validation dataset to the test dataset. In this study, the validation process is not included. 
+   - In bivariate section, the major step to locate our candidate predictors is to select the ones show clear positive or negative trend by plotting variable versus target response variable level. Even though we see the median in boxplots show clear trend, we didn't actually perform statistic tests to validate whether the differences are statistic significant.
+   - When we created the heat map, we used variable quality for simplicity. One thing we could do is to computer polyserial correlation between each independent variable against target response variable *level*, then use that together with pearson correlations computed among independent variables to create a heatmap.
+   - In prediction model section, idealy, we should divide dateset into training, validation and test subsets. By doing so, we can train a couple of prediction models by fitting training data, and then compare error rate in validation dataset, at last apply the model with best performance in validation dataset to the test dataset. In this study, the validation process is not included. 
 
 
 
