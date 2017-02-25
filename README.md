@@ -1,3 +1,6 @@
 # Udacity_P4
 Udacity DataNano P4
-Red wine quality prediction by Random Forest 
+
+Dataset: Red Wine Quality dataset
+
+Keywords: EDA, Random Forest, Multiclass Logistic Regression
