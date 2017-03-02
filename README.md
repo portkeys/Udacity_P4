@@ -3,4 +3,4 @@ Udacity DataNano P4
 
 Dataset: Red Wine Quality dataset
 
-Keywords: EDA, Random Forest, Multiclass Logistic Regression
+Keywords: EDA, Machine Learning, Random Forest
