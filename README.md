@@ -1,6 +1,6 @@
 # Udacity_P4
-Udacity DataNano P4
+Udacity DataNano P4 Submission
 
-Dataset: Red Wine Quality dataset
+Data: Red Wine Quality dataset
 
-Keywords: EDA, Machine Learning, Random Forest
+Keywords: R, EDA, Machine Learning, Random Forest
